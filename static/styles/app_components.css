@@ -480,3 +480,22 @@
 .tip::before {
     content: "\f0a2";
 }
+
+#message-formatting > div > div.simplebar-wrapper > div.simplebar-mask > div > div > div > a, #keyboard-shortcuts > div > div.simplebar-wrapper > div.simplebar-mask > div > div > div > a{
+    display : none;
+}
+
+
+#sidebar-keyboard-shortcuts
+{
+    display : none;
+}
+
+
+
+
+#gear-menu > ul > li:nth-child(6), #gear-menu > ul > li:nth-child(7), #gear-menu > ul > li:nth-child(8), #gear-menu > ul > li:nth-child(9), #gear-menu > ul > li:nth-child(10), #gear-menu > ul > li:nth-child(5), #gear-menu > ul > li:nth-child(12) > a, #gear-menu > ul > li:nth-child(13) > a, #gear-menu > ul > li:nth-child(14) > a,
+#gear-menu > ul > li:nth-child(15) > a, #gear-menu > ul > li:nth-child(16), #gear-menu > ul > li:nth-child(17) > a, #gear-menu > ul > li:nth-child(11), #main_div > div.top-messages-logo > svg
+{
+    display : none;
+}

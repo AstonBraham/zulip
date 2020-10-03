@@ -1440,7 +1440,6 @@ div.focused_table {
     margin: 0 5px 5px 0 !important;
     align-self: center;
     width: 100%;
-    white-space: nowrap;
 
     label.checkbox {
         margin-right: 0 !important;

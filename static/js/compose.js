@@ -531,9 +531,12 @@ function validate_stream_message_mentions(stream_id) {
     const stream_count = stream_data.get_subscriber_count(stream_id) || 0;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     // check if wildcard_mention has any mention and henceforth execute the warning message.
     if (wildcard_mention !== null && stream_count > exports.all_everyone_warn_threshold) {
 =======
+=======
+>>>>>>> Edits
     // If the user is attempting to do a wildcard mention in a large
     // stream, check if they permission to do so.
     if (
@@ -547,7 +550,14 @@ function validate_stream_message_mentions(stream_id) {
             return false;
         }
 
+<<<<<<< HEAD
 >>>>>>> compose: Show error for wildcard messages according to settings.
+=======
+=======
+    // check if wildcard_mention has any mention and henceforth execute the warning message.
+    if (wildcard_mention !== null && stream_count > exports.all_everyone_warn_threshold) {
+>>>>>>> Edits
+>>>>>>> Edits
         if (
             user_acknowledged_all_everyone === undefined ||
             user_acknowledged_all_everyone === false

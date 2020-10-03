@@ -2957,7 +2957,7 @@ msgstr "Invalid or expired login session."
 
 #: templates/zerver/login.html:13
 msgid "Log in to Zulip"
-msgstr "Log in to Zulip"
+msgstr "Log in to WTE Community"
 
 #: templates/zerver/login.html:61
 msgid "Email or username"

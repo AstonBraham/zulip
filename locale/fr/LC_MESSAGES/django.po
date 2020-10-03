@@ -2974,7 +2974,7 @@ msgstr "Session de connextion non valide ou expirée."
 
 #: templates/zerver/login.html:13
 msgid "Log in to Zulip"
-msgstr "Se connecter à Zulip"
+msgstr "Se connecter à WTE Community"
 
 #: templates/zerver/login.html:61
 msgid "Email or username"

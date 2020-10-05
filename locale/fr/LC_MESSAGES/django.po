@@ -3986,7 +3986,7 @@ msgstr "[Consulter le guide]({help_url}) pour aider votre organisation à bien d
 
 #: zerver/lib/onboarding.py:65
 msgid "Hello, and welcome to Zulip!"
-msgstr "Bonjour, et bienvenue sur Zulip!"
+msgstr "Bonjour, et bienvenue sur WTE Community!"
 
 #: zerver/lib/onboarding.py:68
 msgid "This is a private message from me, Welcome Bot."
@@ -3999,7 +3999,7 @@ msgstr "Voici quelques trucs pour vous aider à démarrer :"
 #: zerver/lib/onboarding.py:73
 #, python-brace-format
 msgid "Download our [Desktop and mobile apps]({apps_url})"
-msgstr "Téléchargez nos [applications de bureau et mobile]({apps_url})"
+msgstr ""
 
 #: zerver/lib/onboarding.py:76
 #, python-brace-format
@@ -4010,7 +4010,7 @@ msgstr "Personnalisez votre compte et les notifications sur la [page des Paramè
 
 #: zerver/lib/onboarding.py:79
 msgid "Type `?` to check out Zulip's keyboard shortcuts"
-msgstr "Tapez `?` pour consulter les raccourcis clavier de Zulip."
+msgstr "Tapez `?` pour consulter les raccourcis clavier de la communauté."
 
 #: zerver/lib/onboarding.py:83
 msgid "The most important shortcut is `r` to reply."

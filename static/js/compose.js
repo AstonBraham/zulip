@@ -530,34 +530,30 @@ exports.wildcard_mention_allowed = function () {
 function validate_stream_message_mentions(stream_id) {
     const stream_count = stream_data.get_subscriber_count(stream_id) || 0;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-    // check if wildcard_mention has any mention and henceforth execute the warning message.
-    if (wildcard_mention !== null && stream_count > exports.all_everyone_warn_threshold) {
-=======
-=======
->>>>>>> Edits
-    // If the user is attempting to do a wildcard mention in a large
-    // stream, check if they permission to do so.
-    if (
-        wildcard_mention !== null &&
-        stream_count > exports.wildcard_mention_large_stream_threshold
-    ) {
-        if (!exports.wildcard_mention_allowed()) {
-            compose_error(
-                i18n.t("You do not have permission to use wildcard mentions in this stream."),
-            );
-            return false;
-        }
 
-<<<<<<< HEAD
->>>>>>> compose: Show error for wildcard messages according to settings.
-=======
-=======
     // check if wildcard_mention has any mention and henceforth execute the warning message.
     if (wildcard_mention !== null && stream_count > exports.all_everyone_warn_threshold) {
->>>>>>> Edits
->>>>>>> Edits
+        
+        // Edits
+        // If the user is attempting to do a wildcard mention in a large
+        // stream, check if they permission to do so.
+        if (
+            wildcard_mention !== null &&
+            stream_count > exports.wildcard_mention_large_stream_threshold
+        ) {
+            if (!exports.wildcard_mention_allowed()) {
+                compose_error(
+                    i18n.t("You do not have permission to use wildcard mentions in this stream."),
+                );
+                return false;
+            }
+        
+    }
+    // compose: Show error for wildcard messages according to settings.
+
+    // check if wildcard_mention has any mention and henceforth execute the warning message.
+    if (wildcard_mention !== null && stream_count > exports.all_everyone_warn_threshold) {
+
         if (
             user_acknowledged_all_everyone === undefined ||
             user_acknowledged_all_everyone === false
@@ -577,6 +573,7 @@ function validate_stream_message_mentions(stream_id) {
     user_acknowledged_all_everyone = undefined;
 
     return true;
+}
 }
 
 function validate_stream_message_announce(sub) {

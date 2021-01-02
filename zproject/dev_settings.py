@@ -5,6 +5,7 @@ from typing import Optional, Set, Tuple
 from scripts.lib.zulip_tools import deport
 
 ZULIP_ADMINISTRATOR = "desdemona+admin@zulip.com"
+PUSH_NOTIFICATION_BOUNCER_URL = 'https://push.zulipchat.com'
 
 # We want LOCAL_UPLOADS_DIR to be an absolute path so that code can
 # chdir without having problems accessing it.  Unfortunately, this
@@ -31,7 +32,7 @@ if external_host_env is None:
         # Serve the main dev realm at the literal name "localhost",
         # so it works out of the box even when not on the Internet.
         REALM_HOSTS = {
-            'zulip': 'localhost:9991',
+            'zulip': '192.168.2.16:9991',
         }
 else:
     EXTERNAL_HOST = external_host_env

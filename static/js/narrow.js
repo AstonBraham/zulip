@@ -769,7 +769,7 @@ function handle_post_narrow_deactivate_processes() {
     message_scroll.update_top_of_narrow_notices(home_msg_list);
 }
 
-exports.deactivate = function (coming_from_recent_topics) {
+exports.deactivate = function (coming_from_recent_topics = false) {
     // NOTE: Never call this function independently,
     // always use hashchange.go_to_location("#all_messages") to
     // activate All message narrow.
@@ -785,7 +785,6 @@ exports.deactivate = function (coming_from_recent_topics) {
       message_list_data structure caching system that happens to have
       home_msg_list in it.
      */
-    coming_from_recent_topics = coming_from_recent_topics || false;
     search.clear_search_form();
     // Both All messages and Recent Topics have `undefiend` filter.
     // Return if already in the All message narrow.

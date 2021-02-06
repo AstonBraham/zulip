@@ -1,5 +1,11 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
 const emoji = zrequire("emoji", "shared/js/emoji");
 const typeahead = zrequire("typeahead", "shared/js/typeahead");
 zrequire("compose_state");
@@ -15,7 +21,6 @@ zrequire("composebox_typeahead");
 zrequire("recent_senders");
 zrequire("settings_org");
 const settings_config = zrequire("settings_config");
-set_global("md5", (s) => "md5-" + s);
 
 // To be eliminated in next commit:
 stream_data.update_calculated_fields = () => {};
@@ -167,7 +172,7 @@ stream_data.add_sub(sweden_stream);
 stream_data.add_sub(denmark_stream);
 stream_data.add_sub(netherland_stream);
 
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 
 set_global("page_params", {});
 set_global("channel", {});
@@ -279,9 +284,9 @@ const call_center = {
     members: [],
 };
 
-global.user_groups.add(hamletcharacters);
-global.user_groups.add(backend);
-global.user_groups.add(call_center);
+user_groups.add(hamletcharacters);
+user_groups.add(backend);
+user_groups.add(call_center);
 
 const make_emoji = function (emoji_dict) {
     return {emoji_name: emoji_dict.name, emoji_code: emoji_dict.emoji_code};
@@ -329,7 +334,7 @@ run_test("content_typeahead_selected", () => {
         },
     });
     let set_timeout_called = false;
-    global.patch_builtin("setTimeout", (f, time) => {
+    set_global("setTimeout", (f, time) => {
         f();
         assert.equal(time, 0);
         set_timeout_called = true;
@@ -1094,7 +1099,7 @@ run_test("initialize", () => {
     $("#compose-send-button").fadeOut = noop;
     $("#compose-send-button").fadeIn = noop;
     let channel_post_called = false;
-    global.channel.post = function (params) {
+    channel.post = function (params) {
         assert.equal(params.url, "/json/users/me/enter-sends");
         assert.equal(params.idempotent, true);
         assert.deepEqual(params.data, {enter_sends: page_params.enter_sends});
@@ -1276,6 +1281,10 @@ run_test("begins_typeahead", () => {
     assert_typeahead_equals("abc/po", false);
     assert_typeahead_equals("hello /poll", false);
     assert_typeahead_equals("\n/pol", false);
+    assert_typeahead_equals("/todo", composebox_typeahead.slash_commands);
+    assert_typeahead_equals("my /todo", false);
+    assert_typeahead_equals("\n/to", false);
+    assert_typeahead_equals(" /tod", false);
 
     assert_typeahead_equals("x/", false);
     assert_typeahead_equals("```", false);
@@ -1333,13 +1342,13 @@ run_test("begins_typeahead", () => {
     assert_typeahead_equals("```test", "ing", false);
     assert_typeahead_equals("~~~test", "ing", false);
     const terminal_symbols = ",.;?!()[]> \"'\n\t";
-    terminal_symbols.split().forEach((symbol) => {
+    for (const symbol of terminal_symbols.split()) {
         assert_stream_list("#test", symbol);
         assert_typeahead_equals("@test", symbol, all_mentions);
         assert_typeahead_equals(":test", symbol, emoji_list);
         assert_typeahead_equals("```test", symbol, lang_list);
         assert_typeahead_equals("~~~test", symbol, lang_list);
-    });
+    }
 });
 
 run_test("tokenizing", () => {

@@ -1,8 +1,14 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const rewiremock = require("rewiremock/node");
 
-set_global("$", global.make_zjquery());
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
+set_global("$", make_zjquery());
 set_global("document", {
     location: {},
 });
@@ -17,8 +23,8 @@ set_global("bridge", false);
 
 // Setting these up so that we can test that links to uploads within messages are
 // automatically converted to server relative links.
-global.document.location.protocol = "https:";
-global.document.location.host = "foo.com";
+document.location.protocol = "https:";
+document.location.host = "foo.com";
 
 zrequire("compose_ui");
 zrequire("compose_state");
@@ -56,9 +62,12 @@ run_test("get_item", () => {
         $("#undo_markdown_preview"),
     );
 
-    assert.equal(upload.get_item("textarea", {mode: "edit", row: 1}), $("#message_edit_content_1"));
+    assert.equal(
+        upload.get_item("textarea", {mode: "edit", row: 1}),
+        $(`#message_edit_content_${CSS.escape(1)}`),
+    );
 
-    $("#message_edit_content_2").closest = () => {
+    $(`#message_edit_content_${CSS.escape(2)}`).closest = () => {
         $("#message_edit_form").set_find_results(".message_edit_save", $(".message_edit_save"));
         return $("#message_edit_form");
     };
@@ -66,14 +75,14 @@ run_test("get_item", () => {
 
     assert.equal(
         upload.get_item("send_status_identifier", {mode: "edit", row: 11}),
-        "#message-edit-send-status-11",
+        `#message-edit-send-status-${CSS.escape(11)}`,
     );
     assert.equal(
         upload.get_item("send_status", {mode: "edit", row: 75}),
-        $("#message-edit-send-status-75"),
+        $(`#message-edit-send-status-${CSS.escape(75)}`),
     );
 
-    $("#message-edit-send-status-2").set_find_results(
+    $(`#message-edit-send-status-${CSS.escape(2)}`).set_find_results(
         ".send-status-close",
         $(".send-status-close"),
     );
@@ -82,12 +91,15 @@ run_test("get_item", () => {
         $(".send-status-close"),
     );
 
-    $("#message-edit-send-status-22").set_find_results(".error-msg", $(".error-msg"));
+    $(`#message-edit-send-status-${CSS.escape(22)}`).set_find_results(
+        ".error-msg",
+        $(".error-msg"),
+    );
     assert.equal(upload.get_item("send_status_message", {mode: "edit", row: 22}), $(".error-msg"));
 
     assert.equal(
         upload.get_item("file_input_identifier", {mode: "edit", row: 123}),
-        "#message_edit_file_input_123",
+        `#message_edit_file_input_${CSS.escape(123)}`,
     );
     assert.equal(upload.get_item("source", {mode: "edit", row: 123}), "message-edit-file-input");
     assert.equal(
@@ -96,7 +108,7 @@ run_test("get_item", () => {
     );
     assert.equal(
         upload.get_item("markdown_preview_hide_button", {mode: "edit", row: 65}),
-        $("#undo_markdown_preview_65"),
+        $(`#undo_markdown_preview_${CSS.escape(65)}`),
     );
 
     assert.throws(
@@ -271,7 +283,7 @@ run_test("upload_files", () => {
     upload.upload_files(uppy, config, files);
     assert.equal(add_file_counter, 1);
 
-    global.patch_builtin("setTimeout", (func) => {
+    set_global("setTimeout", (func) => {
         func();
     });
     hide_upload_status_called = false;
@@ -356,7 +368,7 @@ run_test("uppy_config", () => {
 });
 
 run_test("file_input", () => {
-    set_global("$", global.make_zjquery());
+    set_global("$", make_zjquery());
 
     upload.setup_upload({mode: "compose"});
 
@@ -379,7 +391,7 @@ run_test("file_input", () => {
 });
 
 run_test("file_drop", () => {
-    set_global("$", global.make_zjquery());
+    set_global("$", make_zjquery());
 
     upload.setup_upload({mode: "compose"});
 
@@ -419,7 +431,7 @@ run_test("file_drop", () => {
 });
 
 run_test("copy_paste", () => {
-    set_global("$", global.make_zjquery());
+    set_global("$", make_zjquery());
 
     upload.setup_upload({mode: "compose"});
 
@@ -460,7 +472,7 @@ run_test("copy_paste", () => {
 });
 
 run_test("uppy_events", () => {
-    set_global("$", global.make_zjquery());
+    set_global("$", make_zjquery());
     const callbacks = {};
     let uppy_cancel_all_called = false;
     let state = {};
@@ -540,7 +552,7 @@ run_test("uppy_events", () => {
     assert.equal(compose_ui_autosize_textarea_called, false);
 
     const on_complete_callback = callbacks.complete;
-    global.patch_builtin("setTimeout", (func) => {
+    set_global("setTimeout", (func) => {
         func();
     });
     let hide_upload_status_called = false;
@@ -618,10 +630,10 @@ run_test("uppy_events", () => {
     on_restriction_failed_callback(file, null, null);
     assert(compose_ui_replace_syntax_called);
     compose_ui_replace_syntax_called = false;
-    $("#comepose-textarea").val("user modified text");
+    $("#compose-textarea").val("user modified text");
     on_restriction_failed_callback(file, null, null);
     assert(compose_ui_replace_syntax_called);
-    assert.equal($("#comepose-textarea").val(), "user modified text");
+    assert.equal($("#compose-textarea").val(), "user modified text");
 
     state = {
         type: "error",
@@ -668,11 +680,11 @@ run_test("uppy_events", () => {
     assert(show_error_message_called);
     assert(compose_ui_replace_syntax_called);
     show_error_message_called = false;
-    $("#comepose-textarea").val("user modified text");
+    $("#compose-textarea").val("user modified text");
     uppy_cancel_all_called = false;
     on_upload_error_callback(file, null);
     assert(uppy_cancel_all_called);
     assert(show_error_message_called);
     assert(compose_ui_replace_syntax_called);
-    assert.equal($("#comepose-textarea").val(), "user modified text");
+    assert.equal($("#compose-textarea").val(), "user modified text");
 });

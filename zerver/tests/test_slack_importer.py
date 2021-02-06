@@ -355,7 +355,7 @@ class SlackImporter(ZulipTestCase):
         self.assertEqual(zerver_userprofile[3]['realm'], 1)
         self.assertEqual(zerver_userprofile[3]['full_name'], 'Matt Perry')
         self.assertEqual(zerver_userprofile[3]['is_mirror_dummy'], True)
-        self.assertEqual(zerver_userprofile[3]['is_api_super_user'], False)
+        self.assertEqual(zerver_userprofile[3]['can_forge_sender'], False)
 
         self.assertEqual(zerver_userprofile[4]['id'], test_slack_user_id_to_zulip_user_id['U8VAHEVUY'])
         self.assertEqual(zerver_userprofile[4]['role'], UserProfile.ROLE_GUEST)
@@ -756,7 +756,7 @@ class SlackImporter(ZulipTestCase):
 
         test_realm_subdomain = 'test-slack-import'
         output_dir = os.path.join(settings.DEPLOY_ROOT, "var", "test-slack-importer-data")
-        token = 'valid-token'
+        token = 'xoxp-valid-token'
 
         # If the test fails, the 'output_dir' would not be deleted and hence it would give an
         # error when we run the tests next time, as 'do_convert_data' expects an empty 'output_dir'

@@ -1,11 +1,17 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
 const rm = zrequire("rendered_markdown");
 const people = zrequire("people");
 zrequire("user_groups");
 zrequire("stream_data");
 zrequire("timerender");
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 
 set_global("rtl", {
     get_direction: () => "ltr",
@@ -53,9 +59,9 @@ stream_data.add_sub(stream);
 
 const $array = (array) => {
     const each = (func) => {
-        array.forEach((e) => {
+        for (const e of array) {
             func.call(e);
-        });
+        }
     };
     return {each};
 };
@@ -166,7 +172,7 @@ run_test("timestamp", () => {
     const $timestamp_invalid = $.create("timestamp(invalid)");
     $timestamp_invalid.attr("datetime", "invalid");
     $content.set_find_results("time", $array([$timestamp, $timestamp_invalid]));
-    blueslip.expect("error", "Moment could not parse datetime supplied by backend: invalid");
+    blueslip.expect("error", "Could not parse datetime supplied by backend: invalid");
 
     // Initial asserts
     assert.equal($timestamp.text(), "never-been-set");
@@ -190,7 +196,7 @@ run_test("timestamp-twenty-four-hour-time", () => {
     $content.set_find_results("time", $array([$timestamp]));
 
     // We will temporarily change the 24h setting for this test.
-    const old_page_params = global.page_params;
+    const old_page_params = page_params;
 
     set_global("page_params", {...old_page_params, twenty_four_hour_time: true});
     rm.update_elements($content);

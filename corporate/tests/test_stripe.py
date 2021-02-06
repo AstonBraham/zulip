@@ -22,6 +22,7 @@ from corporate.lib.stripe import (
     MAX_INVOICED_LICENSES,
     MIN_INVOICED_LICENSES,
     BillingError,
+    InvalidBillingSchedule,
     StripeCardError,
     add_months,
     attach_discount_to_realm,
@@ -29,6 +30,7 @@ from corporate.lib.stripe import (
     compute_plan_parameters,
     get_discount_for_realm,
     get_latest_seat_count,
+    get_price_per_license,
     invoice_plan,
     invoice_plans_as_needed,
     make_end_of_cycle_updates_if_needed,
@@ -224,7 +226,7 @@ def mock_stripe(tested_timestamp_fields: Sequence[str]=[],
                     decorated_function.__name__, mocked_function_name, mocked_function)  # nocoverage
             else:
                 side_effect = read_stripe_fixture(decorated_function.__name__, mocked_function_name)
-            decorated_function = patch(mocked_function_name, side_effect=side_effect)(decorated_function)
+            decorated_function = cast(CallableT, patch(mocked_function_name, side_effect=side_effect)(decorated_function))
 
         @wraps(decorated_function)
         def wrapped(*args: object, **kwargs: object) -> object:
@@ -357,20 +359,16 @@ class StripeTestCase(ZulipTestCase):
         upgrade_func(*args)
 
 class StripeTest(StripeTestCase):
-    @patch("corporate.lib.stripe.billing_logger.info")
-    @patch("corporate.lib.stripe.billing_logger.error")
-    def test_catch_stripe_errors(self, mock_billing_logger_error: Mock, mock_billing_logger_info: Mock) -> None:
+    def test_catch_stripe_errors(self) -> None:
         @catch_stripe_errors
         def raise_invalid_request_error() -> None:
             raise stripe.error.InvalidRequestError(
                 "message", "param", "code", json_body={})
-        with self.assertRaises(BillingError) as context:
-            raise_invalid_request_error()
-        self.assertEqual('other stripe error', context.exception.description)
-        mock_billing_logger_error.assert_called_once()
-        mock_billing_logger_info.assert_not_called()
-        mock_billing_logger_error.reset_mock()
-        mock_billing_logger_info.reset_mock()
+        with self.assertLogs('corporate.stripe', "ERROR") as error_log:
+            with self.assertRaises(BillingError) as context:
+                raise_invalid_request_error()
+            self.assertEqual('other stripe error', context.exception.description)
+            self.assertEqual(error_log.output, ['ERROR:corporate.stripe:Stripe error: None None None None'])
 
         @catch_stripe_errors
         def raise_card_error() -> None:
@@ -378,12 +376,12 @@ class StripeTest(StripeTestCase):
             json_body = {"error": {"message": error_message}}
             raise stripe.error.CardError(error_message, "number", "invalid_number",
                                          json_body=json_body)
-        with self.assertRaises(StripeCardError) as context:
-            raise_card_error()
-        self.assertIn('not a valid credit card', context.exception.message)
-        self.assertEqual('card error', context.exception.description)
-        mock_billing_logger_info.assert_called_once()
-        mock_billing_logger_error.assert_not_called()
+        with self.assertLogs('corporate.stripe', "INFO") as info_log:
+            with self.assertRaises(StripeCardError) as context:
+                raise_card_error()
+            self.assertIn('not a valid credit card', context.exception.message)
+            self.assertEqual('card error', context.exception.description)
+            self.assertEqual(info_log.output, ['INFO:corporate.stripe:Stripe card error: None None None None'])
 
     def test_billing_not_enabled(self) -> None:
         iago = self.example_user('iago')
@@ -899,9 +897,9 @@ class StripeTest(StripeTestCase):
         self.login_user(user)
         # From https://stripe.com/docs/testing#cards: Attaching this card to
         # a Customer object succeeds, but attempts to charge the customer fail.
-        with patch("corporate.lib.stripe.billing_logger.info") as mock_billing_logger:
+        with self.assertLogs('corporate.stripe', 'INFO') as m:
             self.upgrade(stripe_token=stripe_create_token('4000000000000341').id)
-        mock_billing_logger.assert_called_once()
+            self.assertEqual(m.output, ['INFO:corporate.stripe:Stripe card error: 402 card_error card_declined None'])
         # Check that we created a Customer object but no CustomerPlan
         stripe_customer_id = Customer.objects.get(realm=get_realm('zulip')).stripe_customer_id
         self.assertFalse(CustomerPlan.objects.exists())
@@ -971,11 +969,12 @@ class StripeTest(StripeTestCase):
         hamlet = self.example_user('hamlet')
         self.login_user(hamlet)
         self.local_upgrade(self.seat_count, True, CustomerPlan.ANNUAL, 'token')
-        with patch("corporate.lib.stripe.billing_logger.warning") as mock_billing_logger:
+        with self.assertLogs('corporate.stripe', "WARNING") as m:
             with self.assertRaises(BillingError) as context:
                 self.local_upgrade(self.seat_count, True, CustomerPlan.ANNUAL, 'token')
         self.assertEqual('subscribing with existing subscription', context.exception.description)
-        mock_billing_logger.assert_called_once()
+        self.assertRegexpMatches(m.output[0], r'WARNING:corporate.stripe:Customer <Customer <Realm: zulip \d*> id> trying to upgrade, but has an active subscription')
+        self.assertEqual(len(m.output), 1)
 
     def test_check_upgrade_parameters(self) -> None:
         # Tests all the error paths except 'not enough licenses'
@@ -1053,12 +1052,14 @@ class StripeTest(StripeTestCase):
         # Invoice
         check_success(True, MAX_INVOICED_LICENSES)
 
-    @patch("corporate.lib.stripe.billing_logger.error")
-    def test_upgrade_with_uncaught_exception(self, mock_: Mock) -> None:
+    def test_upgrade_with_uncaught_exception(self) -> None:
         hamlet = self.example_user('hamlet')
         self.login_user(hamlet)
-        with patch("corporate.views.process_initial_upgrade", side_effect=Exception):
+        with patch("corporate.views.process_initial_upgrade", side_effect=Exception), \
+             self.assertLogs('corporate.stripe', "WARNING") as m:
             response = self.upgrade(talk_to_stripe=False)
+            self.assertIn('ERROR:corporate.stripe:Uncaught exception in billing', m.output[0])
+            self.assertIn(m.records[0].stack_info, m.output[0])
         self.assert_json_error_contains(response, "Something went wrong. Please contact desdemona+admin@zulip.com.")
         self.assertEqual(orjson.loads(response.content)['error_description'], 'uncaught exception during upgrade')
 
@@ -1242,10 +1243,10 @@ class StripeTest(StripeTestCase):
         self.assert_in_success_response(['85'], self.client_get("/upgrade/"))
         # Check that the customer was charged the discounted amount
         self.upgrade()
-        stripe_customer_id = Customer.objects.values_list('stripe_customer_id', flat=True).first()
-        [charge] = stripe.Charge.list(customer=stripe_customer_id)
+        customer = Customer.objects.first()
+        [charge] = stripe.Charge.list(customer=customer.stripe_customer_id)
         self.assertEqual(1200 * self.seat_count, charge.amount)
-        [invoice] = stripe.Invoice.list(customer=stripe_customer_id)
+        [invoice] = stripe.Invoice.list(customer=customer.stripe_customer_id)
         self.assertEqual([1200 * self.seat_count, -1200 * self.seat_count],
                          [item.amount for item in invoice.lines])
         # Check CustomerPlan reflects the discount
@@ -1255,13 +1256,25 @@ class StripeTest(StripeTestCase):
         plan.status = CustomerPlan.ENDED
         plan.save(update_fields=['status'])
         attach_discount_to_realm(user.realm, Decimal(25))
-        process_initial_upgrade(user, self.seat_count, True, CustomerPlan.ANNUAL, stripe_create_token().id)
-        [charge0, charge1] = stripe.Charge.list(customer=stripe_customer_id)
-        self.assertEqual(6000 * self.seat_count, charge0.amount)
-        [invoice0, invoice1] = stripe.Invoice.list(customer=stripe_customer_id)
+        with patch('corporate.lib.stripe.timezone_now', return_value=self.now):
+            process_initial_upgrade(user, self.seat_count, True, CustomerPlan.ANNUAL, stripe_create_token().id)
+        [charge, _] = stripe.Charge.list(customer=customer.stripe_customer_id)
+        self.assertEqual(6000 * self.seat_count, charge.amount)
+        [invoice, _] = stripe.Invoice.list(customer=customer.stripe_customer_id)
         self.assertEqual([6000 * self.seat_count, -6000 * self.seat_count],
-                         [item.amount for item in invoice0.lines])
+                         [item.amount for item in invoice.lines])
         plan = CustomerPlan.objects.get(price_per_license=6000, discount=Decimal(25))
+
+        attach_discount_to_realm(user.realm, Decimal(50))
+        plan.refresh_from_db()
+        self.assertEqual(plan.price_per_license, 4000)
+        self.assertEqual(plan.discount, 50)
+        customer.refresh_from_db()
+        self.assertEqual(customer.default_discount, 50)
+        invoice_plans_as_needed(self.next_year + timedelta(days=10))
+        [invoice, _, _] = stripe.Invoice.list(customer=customer.stripe_customer_id)
+        self.assertEqual([4000 * self.seat_count],
+                         [item.amount for item in invoice.lines])
 
     def test_get_discount_for_realm(self) -> None:
         user = self.example_user('hamlet')
@@ -1284,11 +1297,10 @@ class StripeTest(StripeTestCase):
 
         # Replace with an invalid card
         stripe_token = stripe_create_token(card_number='4000000000009987').id
-        with patch("corporate.lib.stripe.billing_logger.info") as mock_billing_logger:
-            with patch("stripe.Invoice.list") as mock_invoice_list:
-                response = self.client_post("/json/billing/sources/change",
-                                            {'stripe_token': orjson.dumps(stripe_token).decode()})
-        mock_billing_logger.assert_called_once()
+        with patch("stripe.Invoice.list") as mock_invoice_list, self.assertLogs('corporate.stripe', 'INFO') as m:
+            response = self.client_post("/json/billing/sources/change",
+                                        {'stripe_token': orjson.dumps(stripe_token).decode()})
+            self.assertEqual(m.output, ['INFO:corporate.stripe:Stripe card error: 402 card_error card_declined '])
         mock_invoice_list.assert_not_called()
         self.assertEqual(orjson.loads(response.content)['error_description'], 'card error')
         self.assert_json_error_contains(response, 'Your card was declined')
@@ -1299,10 +1311,10 @@ class StripeTest(StripeTestCase):
 
         # Replace with a card that's valid, but charging the card fails
         stripe_token = stripe_create_token(card_number='4000000000000341').id
-        with patch("corporate.lib.stripe.billing_logger.info") as mock_billing_logger:
+        with self.assertLogs('corporate.stripe', 'INFO') as m:
             response = self.client_post("/json/billing/sources/change",
                                         {'stripe_token': orjson.dumps(stripe_token).decode()})
-        mock_billing_logger.assert_called_once()
+            self.assertEqual(m.output, ['INFO:corporate.stripe:Stripe card error: 402 card_error card_declined None'])
         self.assertEqual(orjson.loads(response.content)['error_description'], 'card error')
         self.assert_json_error_contains(response, 'Your card was declined')
         for stripe_source in stripe_get_customer(stripe_customer_id).sources:
@@ -1330,14 +1342,15 @@ class StripeTest(StripeTestCase):
         self.assertEqual(2, RealmAuditLog.objects.filter(
             event_type=RealmAuditLog.STRIPE_CARD_CHANGED).count())
 
-    @patch("corporate.lib.stripe.billing_logger.info")
-    def test_downgrade(self, mock_: Mock) -> None:
+    def test_downgrade(self) -> None:
         user = self.example_user("hamlet")
         self.login_user(user)
         with patch("corporate.lib.stripe.timezone_now", return_value=self.now):
             self.local_upgrade(self.seat_count, True, CustomerPlan.ANNUAL, 'token')
-        response = self.client_post("/json/billing/plan/change",
-                                    {'status': CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE})
+        with self.assertLogs('corporate.stripe', 'INFO') as m:
+            response = self.client_post("/json/billing/plan/change",
+                                        {'status': CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE})
+            self.assertRegexpMatches(m.output[0], r"INFO:corporate.stripe:Change plan status: Customer.id: \d*, CustomerPlan.id: \d*, status: \d*")
         self.assert_json_success(response)
 
         # Verify that we still write LicenseLedger rows during the remaining
@@ -1388,7 +1401,6 @@ class StripeTest(StripeTestCase):
         mocked.assert_not_called()
 
     @mock_stripe()
-    @patch("corporate.lib.stripe.billing_logger.info")
     def test_switch_from_monthly_plan_to_annual_plan_for_automatic_license_management(self, *mocks: Mock) -> None:
         user = self.example_user("hamlet")
 
@@ -1400,8 +1412,10 @@ class StripeTest(StripeTestCase):
         self.assertEqual(monthly_plan.automanage_licenses, True)
         self.assertEqual(monthly_plan.billing_schedule, CustomerPlan.MONTHLY)
 
-        response = self.client_post("/json/billing/plan/change",
-                                    {'status': CustomerPlan.SWITCH_TO_ANNUAL_AT_END_OF_CYCLE})
+        with self.assertLogs('corporate.stripe', "INFO") as m:
+            response = self.client_post("/json/billing/plan/change",
+                                        {'status': CustomerPlan.SWITCH_TO_ANNUAL_AT_END_OF_CYCLE})
+            self.assertRegexpMatches(m.output[0], r'INFO:corporate.stripe:Change plan status: Customer.id: \d*, CustomerPlan.id: \d*, status: 4')
         self.assert_json_success(response)
         monthly_plan.refresh_from_db()
         self.assertEqual(monthly_plan.status, CustomerPlan.SWITCH_TO_ANNUAL_AT_END_OF_CYCLE)
@@ -1531,7 +1545,6 @@ class StripeTest(StripeTestCase):
             self.assertEqual(invoice_item[key], value)
 
     @mock_stripe()
-    @patch("corporate.lib.stripe.billing_logger.info")
     def test_switch_from_monthly_plan_to_annual_plan_for_manual_license_management(self, *mocks: Mock) -> None:
         user = self.example_user("hamlet")
         num_licenses = 35
@@ -1543,9 +1556,10 @@ class StripeTest(StripeTestCase):
         assert(monthly_plan is not None)
         self.assertEqual(monthly_plan.automanage_licenses, False)
         self.assertEqual(monthly_plan.billing_schedule, CustomerPlan.MONTHLY)
-
-        response = self.client_post("/json/billing/plan/change",
-                                    {'status': CustomerPlan.SWITCH_TO_ANNUAL_AT_END_OF_CYCLE})
+        with self.assertLogs('corporate.stripe', "INFO") as m:
+            response = self.client_post("/json/billing/plan/change",
+                                        {'status': CustomerPlan.SWITCH_TO_ANNUAL_AT_END_OF_CYCLE})
+            self.assertRegexpMatches(m.output[0], r'INFO:corporate.stripe:Change plan status: Customer.id: \d*, CustomerPlan.id: \d*, status: 4')
         self.assert_json_success(response)
         monthly_plan.refresh_from_db()
         self.assertEqual(monthly_plan.status, CustomerPlan.SWITCH_TO_ANNUAL_AT_END_OF_CYCLE)
@@ -1619,23 +1633,24 @@ class StripeTest(StripeTestCase):
         for key, value in annual_plan_invoice_item_params.items():
             self.assertEqual(invoice_item[key], value)
 
-    @patch("corporate.lib.stripe.billing_logger.info")
-    def test_reupgrade_after_plan_status_changed_to_downgrade_at_end_of_cycle(self, mock_: Mock) -> None:
+    def test_reupgrade_after_plan_status_changed_to_downgrade_at_end_of_cycle(self) -> None:
         user = self.example_user("hamlet")
         self.login_user(user)
         with patch("corporate.lib.stripe.timezone_now", return_value=self.now):
             self.local_upgrade(self.seat_count, True, CustomerPlan.ANNUAL, 'token')
-        response = self.client_post("/json/billing/plan/change",
-                                    {'status': CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE})
+        with self.assertLogs('corporate.stripe', 'INFO') as m:
+            response = self.client_post("/json/billing/plan/change",
+                                        {'status': CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE})
+            self.assertRegexpMatches(m.output[0], r'INFO:corporate.stripe:Change plan status: Customer.id: \d*, CustomerPlan.id: \d*, status: 2')
         self.assert_json_success(response)
         self.assertEqual(CustomerPlan.objects.first().status, CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE)
-
-        response = self.client_post("/json/billing/plan/change",
-                                    {'status': CustomerPlan.ACTIVE})
+        with self.assertLogs('corporate.stripe', "INFO") as m:
+            response = self.client_post("/json/billing/plan/change",
+                                        {'status': CustomerPlan.ACTIVE})
+            self.assertRegexpMatches(m.output[0], r'INFO:corporate.stripe:Change plan status: Customer.id: \d*, CustomerPlan.id: \d*, status: 1')
         self.assert_json_success(response)
         self.assertEqual(CustomerPlan.objects.first().status, CustomerPlan.ACTIVE)
 
-    @patch("corporate.lib.stripe.billing_logger.info")
     @patch("stripe.Invoice.create")
     @patch("stripe.Invoice.finalize_invoice")
     @patch("stripe.InvoiceItem.create")
@@ -1649,8 +1664,10 @@ class StripeTest(StripeTestCase):
         self.login_user(user)
         with patch("corporate.lib.stripe.timezone_now", return_value=self.now):
             self.local_upgrade(self.seat_count, True, CustomerPlan.ANNUAL, 'token')
-        self.client_post("/json/billing/plan/change",
-                         {'status': CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE})
+        with self.assertLogs('corporate.stripe', "INFO") as m:
+            self.client_post("/json/billing/plan/change",
+                             {'status': CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE})
+            self.assertRegexpMatches(m.output[0], r'INFO:corporate.stripe:Change plan status: Customer.id: \d*, CustomerPlan.id: \d*, status: 2')
 
         plan = CustomerPlan.objects.first()
         self.assertIsNotNone(plan.next_invoice_date)
@@ -1660,8 +1677,7 @@ class StripeTest(StripeTestCase):
         self.assertIsNone(plan.next_invoice_date)
         self.assertEqual(plan.status, CustomerPlan.ENDED)
 
-    @patch("corporate.lib.stripe.billing_logger.info")
-    def test_downgrade_free_trial(self, mock_: Mock) -> None:
+    def test_downgrade_free_trial(self) -> None:
         user = self.example_user("hamlet")
 
         free_trial_end_date = self.now + timedelta(days=60)
@@ -1705,8 +1721,6 @@ class StripeTest(StripeTestCase):
                 invoice_plans_as_needed(self.next_year)
             mocked.assert_not_called()
 
-    @patch("corporate.lib.stripe.billing_logger.warning")
-    @patch("corporate.lib.stripe.billing_logger.info")
     def test_reupgrade_by_billing_admin_after_downgrade(self, *mocks: Mock) -> None:
         user = self.example_user("hamlet")
 
@@ -1714,12 +1728,15 @@ class StripeTest(StripeTestCase):
             self.local_upgrade(self.seat_count, True, CustomerPlan.ANNUAL, 'token')
 
         self.login_user(user)
-        self.client_post("/json/billing/plan/change",
-                         {'status': CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE})
+        with self.assertLogs('corporate.stripe', 'INFO') as m:
+            self.client_post("/json/billing/plan/change",
+                             {'status': CustomerPlan.DOWNGRADE_AT_END_OF_CYCLE})
+            self.assertRegexpMatches(m.output[0], r'INFO:corporate.stripe:Change plan status: Customer.id: \d*, CustomerPlan.id: \d*, status: 2')
 
-        with self.assertRaises(BillingError) as context:
+        with self.assertRaises(BillingError) as context, self.assertLogs('corporate.stripe', 'WARNING') as m:
             with patch("corporate.lib.stripe.timezone_now", return_value=self.now):
                 self.local_upgrade(self.seat_count, True, CustomerPlan.ANNUAL, 'token')
+        self.assertRegexpMatches(m.output[0], r'WARNING:corporate.stripe:Customer <Customer <Realm: zulip \d*> id> trying to upgrade, but has an active subscription')
         self.assertEqual(context.exception.description, "subscribing with existing subscription")
 
         invoice_plans_as_needed(self.next_year)
@@ -1743,8 +1760,7 @@ class StripeTest(StripeTestCase):
         self.assertEqual(old_plan.next_invoice_date, None)
         self.assertEqual(old_plan.status, CustomerPlan.ENDED)
 
-    @patch("corporate.lib.stripe.billing_logger.info")
-    def test_deactivate_realm(self, mock_: Mock) -> None:
+    def test_deactivate_realm(self) -> None:
         user = self.example_user("hamlet")
         with patch("corporate.lib.stripe.timezone_now", return_value=self.now):
             self.local_upgrade(self.seat_count, True, CustomerPlan.ANNUAL, 'token')
@@ -1787,8 +1803,7 @@ class StripeTest(StripeTestCase):
             invoice_plans_as_needed(self.next_year)
         mocked.assert_not_called()
 
-    @patch("corporate.lib.stripe.billing_logger.info")
-    def test_reupgrade_by_billing_admin_after_realm_deactivation(self, mock_: Mock) -> None:
+    def test_reupgrade_by_billing_admin_after_realm_deactivation(self) -> None:
         user = self.example_user("hamlet")
 
         with patch("corporate.lib.stripe.timezone_now", return_value=self.now):
@@ -1985,6 +2000,24 @@ class BillingHelpersTest(ZulipTestCase):
                     None if free_trial is None else Decimal(free_trial),
                 )
                 self.assertEqual(output_, output)
+
+    def test_get_price_per_license(self) -> None:
+        self.assertEqual(
+            get_price_per_license(CustomerPlan.STANDARD, CustomerPlan.ANNUAL), 8000
+        )
+        self.assertEqual(
+            get_price_per_license(CustomerPlan.STANDARD, CustomerPlan.MONTHLY), 800
+        )
+        self.assertEqual(
+            get_price_per_license(CustomerPlan.STANDARD, CustomerPlan.MONTHLY, discount=Decimal(50)),
+            400
+        )
+
+        with self.assertRaises(AssertionError):
+            get_price_per_license(CustomerPlan.PLUS, CustomerPlan.MONTHLY)
+
+        with self.assertRaisesRegex(InvalidBillingSchedule, "Unknown billing_schedule: 1000"):
+            get_price_per_license(CustomerPlan.STANDARD, 1000)
 
     def test_update_or_create_stripe_customer_logic(self) -> None:
         user = self.example_user('hamlet')

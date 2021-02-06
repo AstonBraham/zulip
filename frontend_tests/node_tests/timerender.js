@@ -1,9 +1,15 @@
 "use strict";
 
-const moment = require("moment");
+const {strict: assert} = require("assert");
+
+const MockDate = require("mockdate");
 const XDate = require("xdate");
 
-set_global("$", global.make_zjquery());
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
+set_global("$", make_zjquery());
 set_global("page_params", {
     twenty_four_hour_time: true,
 });
@@ -140,17 +146,16 @@ run_test("get_timestamp_for_flatpickr", () => {
     const iso_timestamp = "2017-05-18T07:12:53Z"; // ISO 8601 date format
     const func = timerender.get_timestamp_for_flatpickr;
     // Freeze time for testing.
-    const date_now = Date.now;
-    Date.now = () => new Date("2020-07-07T10:00:00Z").getTime();
+    MockDate.set(new Date("2020-07-07T10:00:00Z").getTime());
 
     // Invalid timestamps should show current time.
-    assert.equal(func("random str").valueOf(), moment().valueOf());
+    assert.equal(func("random str").valueOf(), Date.now());
 
     // Valid ISO timestamps should return Date objects.
-    assert.equal(func(iso_timestamp).valueOf(), moment(unix_timestamp).valueOf());
+    assert.equal(func(iso_timestamp).valueOf(), new Date(unix_timestamp).getTime());
 
     // Restore the Date object.
-    Date.now = date_now;
+    MockDate.reset();
 });
 
 run_test("absolute_time_12_hour", () => {
@@ -238,7 +243,7 @@ run_test("set_full_datetime", () => {
 });
 
 run_test("last_seen_status_from_date", () => {
-    // Set base_dateto to March 1 2016 12.30 AM (months are zero based)
+    // Set base_date to March 1 2016 12.30 AM (months are zero based)
     let base_date = new XDate(2016, 2, 1, 0, 30);
 
     function assert_same(modifier, expected_status) {
@@ -256,11 +261,11 @@ run_test("last_seen_status_from_date", () => {
 
     assert_same((d) => d.addMinutes(-30), i18n.t("30 minutes ago"));
 
-    assert_same((d) => d.addHours(-1), i18n.t("An hour ago"));
+    assert_same((d) => d.addHours(-1), i18n.t("Yesterday"));
 
-    assert_same((d) => d.addHours(-2), i18n.t("2 hours ago"));
+    assert_same((d) => d.addHours(-2), i18n.t("Yesterday"));
 
-    assert_same((d) => d.addHours(-20), i18n.t("20 hours ago"));
+    assert_same((d) => d.addHours(-20), i18n.t("Yesterday"));
 
     assert_same((d) => d.addDays(-1), i18n.t("Yesterday"));
 
@@ -274,10 +279,21 @@ run_test("last_seen_status_from_date", () => {
 
     assert_same((d) => d.addYears(-3), i18n.t("Mar 01,\u00A02013"));
 
-    // Set base_dateto to May 1 2016 12.30 AM (months are zero based)
+    // Set base_date to May 1 2016 12.30 AM (months are zero based)
     base_date = new XDate(2016, 4, 1, 0, 30);
 
     assert_same((d) => d.addDays(-91), i18n.t("Jan\u00A031"));
+
+    // Set base_date to May 1 2016 10.30 PM (months are zero based)
+    base_date = new XDate(2016, 4, 2, 23, 30);
+
+    assert_same((d) => d.addHours(-1), i18n.t("An hour ago"));
+
+    assert_same((d) => d.addHours(-2), i18n.t("2 hours ago"));
+
+    assert_same((d) => d.addHours(-12), i18n.t("12 hours ago"));
+
+    assert_same((d) => d.addHours(-24), i18n.t("Yesterday"));
 });
 
 run_test("set_full_datetime", () => {

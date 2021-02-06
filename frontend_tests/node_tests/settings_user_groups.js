@@ -1,12 +1,19 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const _ = require("lodash");
+
+const {stub_templates} = require("../zjsunit/handlebars");
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
 
 zrequire("user_pill");
 zrequire("pill_typeahead");
 zrequire("settings_user_groups");
 
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 set_global("confirm_dialog", {});
 
 const noop = function () {};
@@ -83,12 +90,12 @@ run_test("can_edit", () => {
     assert(settings_user_groups.can_edit(1));
 });
 
-const user_group_selector = "#user-groups #1";
-const cancel_selector = "#user-groups #1 .save-status.btn-danger";
-const saved_selector = "#user-groups #1 .save-status.sea-green";
-const name_selector = "#user-groups #1 .name";
-const description_selector = "#user-groups #1 .description";
-const instructions_selector = "#user-groups #1 .save-instructions";
+const user_group_selector = `#user-groups #${CSS.escape(1)}`;
+const cancel_selector = `#user-groups #${CSS.escape(1)} .save-status.btn-danger`;
+const saved_selector = `#user-groups #${CSS.escape(1)} .save-status.sea-green`;
+const name_selector = `#user-groups #${CSS.escape(1)} .name`;
+const description_selector = `#user-groups #${CSS.escape(1)} .description`;
+const instructions_selector = `#user-groups #${CSS.escape(1)} .save-instructions`;
 
 run_test("populate_user_groups", () => {
     const realm_user_group = {
@@ -127,7 +134,7 @@ run_test("populate_user_groups", () => {
 
     let templates_render_called = false;
     const fake_rendered_temp = $.create("fake_admin_user_group_list_template_rendered");
-    global.stub_templates((template, args) => {
+    stub_templates((template, args) => {
         assert.equal(template, "admin_user_group_list");
         assert.equal(args.user_group.id, 1);
         assert.equal(args.user_group.name, "Mobile");
@@ -162,7 +169,7 @@ run_test("populate_user_groups", () => {
 
     const all_pills = new Map();
 
-    const pill_container_stub = $('.pill-container[data-group-pills="1"]');
+    const pill_container_stub = $(`.pill-container[data-group-pills="${CSS.escape(1)}"]`);
     pills.appendValidatedData = function (item) {
         const id = item.user_id;
         assert(!all_pills.has(id));
@@ -327,7 +334,7 @@ run_test("populate_user_groups", () => {
     }
 
     pills.onPillRemove = function (handler) {
-        global.patch_builtin("setTimeout", (func) => {
+        set_global("setTimeout", (func) => {
             func();
         });
         realm_user_group.members = new Set([2, 31]);
@@ -370,7 +377,7 @@ run_test("with_external_user", () => {
         return noop;
     };
 
-    global.stub_templates(() => noop);
+    stub_templates(() => noop);
 
     people.get_by_user_id = function () {
         return noop;
@@ -387,10 +394,10 @@ run_test("with_external_user", () => {
     };
 
     // Reset zjquery to test stuff with user who cannot edit
-    set_global("$", global.make_zjquery());
+    set_global("$", make_zjquery());
 
     let user_group_find_called = 0;
-    const user_group_stub = $('div.user-group[id="1"]');
+    const user_group_stub = $(`div.user-group[id="${CSS.escape(1)}"]`);
     const name_field_stub = $.create("fake-name-field");
     const description_field_stub = $.create("fake-description-field");
     const input_stub = $.create("fake-input");
@@ -406,7 +413,7 @@ run_test("with_external_user", () => {
         throw new Error(`Unknown element ${elem}`);
     };
 
-    const pill_container_stub = $('.pill-container[data-group-pills="1"]');
+    const pill_container_stub = $(`.pill-container[data-group-pills="${CSS.escape(1)}"]`);
     const pill_stub = $.create("fake-pill");
     let pill_container_find_called = 0;
     pill_container_stub.find = function (elem) {
@@ -787,7 +794,7 @@ run_test("on_events", () => {
             assert.equal(opts.data.description, "translated: All mobile members");
             api_endpoint_called = true;
             (function test_post_success() {
-                global.patch_builtin("setTimeout", (func) => {
+                set_global("setTimeout", (func) => {
                     func();
                 });
                 opts.success();

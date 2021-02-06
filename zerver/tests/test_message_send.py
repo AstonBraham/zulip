@@ -15,7 +15,7 @@ from zerver.lib.actions import (
     build_message_send_dict,
     check_message,
     check_send_stream_message,
-    do_change_is_api_super_user,
+    do_change_can_forge_sender,
     do_change_stream_post_policy,
     do_create_user,
     do_deactivate_user,
@@ -309,7 +309,7 @@ class MessagePOSTTest(ZulipTestCase):
                                                      "client": "test suite",
                                                      "content": "Test message",
                                                      "topic": "Test topic"})
-        self.assert_json_error(result, "Stream '&amp;&lt;&quot;&#39;&gt;&lt;non-existent&gt;' does not exist")
+        self.assert_json_error(result, "Stream '&amp;&lt;&quot;&#x27;&gt;&lt;non-existent&gt;' does not exist")
 
     def test_personal_message(self) -> None:
         """
@@ -677,7 +677,7 @@ class MessagePOSTTest(ZulipTestCase):
         user = self.example_user("default_bot")
         password = "test_password"
         user.set_password(password)
-        user.is_api_super_user = True
+        user.can_forge_sender = True
         user.save()
         result = self.api_post(user,
                                "/api/v1/messages", {"type": "stream",
@@ -686,7 +686,7 @@ class MessagePOSTTest(ZulipTestCase):
                                                     "content": "Test message",
                                                     "topic": "Test topic",
                                                     "realm_str": "non-existing"})
-        user.is_api_super_user = False
+        user.can_forge_sender = False
         user.save()
         self.assert_json_error(result, "Unknown organization 'non-existing'")
 
@@ -765,7 +765,7 @@ class MessagePOSTTest(ZulipTestCase):
 
         email = "irc-bot@zulip.testserver"
         user = get_user(email, get_realm('zulip'))
-        user.is_api_super_user = True
+        user.can_forge_sender = True
         user.save()
         user = get_user(email, get_realm('zulip'))
         self.subscribe(user, "IRCland")
@@ -804,7 +804,7 @@ class MessagePOSTTest(ZulipTestCase):
         msg = self.get_last_message()
         self.assertEqual(int(datetime_to_timestamp(msg.date_sent)), int(fake_timestamp))
 
-    def test_unsubscribed_api_super_user(self) -> None:
+    def test_unsubscribed_can_forge_sender(self) -> None:
         reset_emails_in_zulip_realm()
 
         cordelia = self.example_user('cordelia')
@@ -813,7 +813,7 @@ class MessagePOSTTest(ZulipTestCase):
 
         self.unsubscribe(cordelia, stream_name)
 
-        # As long as Cordelia is a super_user, she can send messages
+        # As long as Cordelia cam_forge_sender, she can send messages
         # to ANY stream, even one she is not unsubscribed to, and
         # she can do it for herself or on behalf of a mirrored user.
 
@@ -831,13 +831,13 @@ class MessagePOSTTest(ZulipTestCase):
             if forged:
                 payload['sender'] = sender_email
 
-            cordelia.is_api_super_user = False
+            cordelia.can_forge_sender = False
             cordelia.save()
 
             result = self.api_post(cordelia, "/api/v1/messages", payload)
             self.assert_json_error_contains(result, 'authorized')
 
-            cordelia.is_api_super_user = True
+            cordelia.can_forge_sender = True
             cordelia.save()
 
             result = self.api_post(cordelia, "/api/v1/messages", payload)
@@ -1431,7 +1431,7 @@ class StreamMessagesTest(ZulipTestCase):
         user = self.mit_user('starnine')
         self.subscribe(user, 'Verona')
 
-        do_change_is_api_super_user(user, True)
+        do_change_can_forge_sender(user, True)
         result = self.api_post(user, "/api/v1/messages", {"type": "stream",
                                                           "to": "Verona",
                                                           "sender": self.mit_email("sipbtest"),
@@ -1442,7 +1442,7 @@ class StreamMessagesTest(ZulipTestCase):
                                subdomain="zephyr")
         self.assert_json_success(result)
 
-        do_change_is_api_super_user(user, False)
+        do_change_can_forge_sender(user, False)
         result = self.api_post(user, "/api/v1/messages", {"type": "stream",
                                                           "to": "Verona",
                                                           "sender": self.mit_email("sipbtest"),
@@ -1790,7 +1790,7 @@ class InternalPrepTest(ZulipTestCase):
             recipient_user=recipient_user,
             content=content)
         assert result is not None
-        message = result['message']
+        message = result.message
         self.assertIn('message was too long', message.content)
 
         # Simulate sending a message to somebody not in the
@@ -2000,7 +2000,7 @@ class CheckMessageTest(ZulipTestCase):
         message_content = 'whatever'
         addressee = Addressee.for_stream_name(stream_name, topic_name)
         ret = check_message(sender, client, addressee, message_content)
-        self.assertEqual(ret['message'].sender.id, sender.id)
+        self.assertEqual(ret.message.sender.id, sender.id)
 
     def test_guest_user_can_send_message(self) -> None:
         # Guest users can write to web_public streams.
@@ -2019,7 +2019,7 @@ class CheckMessageTest(ZulipTestCase):
         message_content = 'whatever'
         addressee = Addressee.for_stream_name(rome_stream.name, topic_name)
         ret = check_message(sender, client, addressee, message_content)
-        self.assertEqual(ret['message'].sender.id, sender.id)
+        self.assertEqual(ret.message.sender.id, sender.id)
 
     def test_bot_pm_feature(self) -> None:
         """We send a PM to a bot's owner if their bot sends a message to
@@ -2069,7 +2069,7 @@ class CheckMessageTest(ZulipTestCase):
 
         new_count = message_stream_count(parent)
         self.assertEqual(new_count, old_count + 2)
-        self.assertEqual(ret['message'].sender.email, 'othello-bot@zulip.com')
+        self.assertEqual(ret.message.sender.email, 'othello-bot@zulip.com')
         self.assertIn("does not have any subscribers", most_recent_message(parent).content)
 
     def test_bot_pm_error_handling(self) -> None:

@@ -198,15 +198,12 @@ exports.create = function (opts) {
 
             // this is an array to push all the errored values to, so it's drafts
             // of pills for the user to fix.
-            const drafts = [];
-
-            pills.forEach((pill) => {
-                // if this returns `false`, it erroed and we should push it to
-                // the draft pills.
-                if (funcs.appendPill(pill) === false) {
-                    drafts.push(pill);
-                }
-            });
+            const drafts = pills.filter(
+                (pill) =>
+                    // if this returns `false`, it erroed and we should push it to
+                    // the draft pills.
+                    funcs.appendPill(pill) === false,
+            );
 
             store.$input.text(drafts.join(", "));
             // when using the `text` insertion feature with jQuery the caret is
@@ -282,10 +279,8 @@ exports.create = function (opts) {
             // should switch to focus the last pill in the list.
             // the rest of the events then will be taken care of in the function
             // below that handles events on the ".pill" class.
-            if (char === KEY.LEFT_ARROW) {
-                if (window.getSelection().anchorOffset === 0) {
-                    store.$parent.find(".pill").last().trigger("focus");
-                }
+            if (char === KEY.LEFT_ARROW && window.getSelection().anchorOffset === 0) {
+                store.$parent.find(".pill").last().trigger("focus");
             }
 
             // Typing of the comma is prevented if the last field doesn't validate,

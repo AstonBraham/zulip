@@ -12,9 +12,11 @@ from django.utils.timezone import now as timezone_now
 
 from zerver.lib.actions import (
     create_users,
+    do_change_can_create_users,
     do_change_user_role,
     do_create_user,
     do_deactivate_user,
+    do_delete_user,
     do_invite_users,
     do_reactivate_user,
     do_set_realm_property,
@@ -50,6 +52,7 @@ from zerver.models import (
     Recipient,
     ScheduledEmail,
     Stream,
+    Subscription,
     UserHotspot,
     UserProfile,
     check_valid_user_ids,
@@ -596,7 +599,7 @@ class PermissionTest(ZulipTestCase):
             'Biography': 'long text data',
             'Favorite food': 'short text data',
             'Favorite editor': 'vim',
-            'Birthday': '1909-3-5',
+            'Birthday': '1909-03-05',
             'Favorite website': 'https://zulip.com',
             'Mentor': [cordelia.id],
             'GitHub': 'timabbott',
@@ -769,7 +772,7 @@ class QueryCountTest(ZulipTestCase):
                         prereg_user=prereg_user,
                     )
 
-        self.assert_length(queries, 70)
+        self.assert_length(queries, 68)
         self.assert_length(cache_tries, 20)
         self.assert_length(events, 7)
 
@@ -839,6 +842,23 @@ class AdminCreateUserTest(ZulipTestCase):
         realm = admin.realm
         self.login_user(admin)
         do_change_user_role(admin, UserProfile.ROLE_REALM_ADMINISTRATOR)
+        valid_params = dict(
+            email='romeo@zulip.net',
+            password='xxxx',
+            full_name='Romeo Montague',
+        )
+
+        self.assertEqual(admin.can_create_users, False)
+        result = self.client_post("/json/users", valid_params)
+        self.assert_json_error(result, "User not authorized for this query")
+
+        do_change_can_create_users(admin, True)
+        # can_create_users is insufficient without being a realm administrator:
+        do_change_user_role(admin, UserProfile.ROLE_MEMBER)
+        result = self.client_post("/json/users", valid_params)
+        self.assert_json_error(result, "Must be an organization administrator")
+
+        do_change_user_role(admin, UserProfile.ROLE_REALM_ADMINISTRATOR)
 
         result = self.client_post("/json/users", {})
         self.assert_json_error(result, "Missing 'email' argument")
@@ -880,11 +900,6 @@ class AdminCreateUserTest(ZulipTestCase):
                                "Email 'romeo@not-zulip.com' not allowed in this organization")
 
         RealmDomain.objects.create(realm=get_realm('zulip'), domain='zulip.net')
-        valid_params = dict(
-            email='romeo@zulip.net',
-            password='xxxx',
-            full_name='Romeo Montague',
-        )
         # Check can't use a bad password with zxcvbn enabled
         with self.settings(PASSWORD_MIN_LENGTH=6, PASSWORD_MIN_GUESSES=1000):
             result = self.client_post("/json/users", valid_params)
@@ -1703,13 +1718,86 @@ class GetProfileTest(ZulipTestCase):
             avatar_url(hamlet),
         )
 
-class FakeEmailDomainTest(ZulipTestCase):
-    @override_settings(FAKE_EMAIL_DOMAIN="invaliddomain")
-    def test_invalid_fake_email_domain(self) -> None:
-        with self.assertRaises(InvalidFakeEmailDomain):
-            get_fake_email_domain()
+class DeleteUserTest(ZulipTestCase):
+    def test_do_delete_user(self) -> None:
+        realm = get_realm("zulip")
+        cordelia = self.example_user('cordelia')
+        othello = self.example_user('othello')
+        hamlet = self.example_user('hamlet')
+        hamlet_personal_recipient = hamlet.recipient
+        hamlet_user_id = hamlet.id
 
-    @override_settings(FAKE_EMAIL_DOMAIN="127.0.0.1")
+        self.send_personal_message(cordelia, hamlet)
+        self.send_personal_message(hamlet, cordelia)
+
+        personal_message_ids_to_hamlet = Message.objects.filter(recipient=hamlet_personal_recipient) \
+            .values_list('id', flat=True)
+        self.assertTrue(len(personal_message_ids_to_hamlet) > 0)
+        self.assertTrue(Message.objects.filter(sender=hamlet).exists())
+
+        huddle_message_ids_from_cordelia = [
+            self.send_huddle_message(
+                cordelia,
+                [hamlet, othello]
+            )
+            for i in range(3)
+        ]
+        huddle_message_ids_from_hamlet = [
+            self.send_huddle_message(
+                hamlet,
+                [cordelia, othello]
+            )
+            for i in range(3)
+        ]
+
+        huddle_with_hamlet_recipient_ids = list(
+            Subscription.objects.filter(user_profile=hamlet, recipient__type=Recipient.HUDDLE)
+            .values_list('recipient_id', flat=True)
+        )
+        self.assertTrue(len(huddle_with_hamlet_recipient_ids) > 0)
+
+        do_delete_user(hamlet)
+
+        replacement_dummy_user = UserProfile.objects.get(id=hamlet_user_id, realm=realm)
+
+        self.assertEqual(replacement_dummy_user.delivery_email, f"deleteduser{hamlet_user_id}@{realm.uri}")
+        self.assertEqual(replacement_dummy_user.is_mirror_dummy, True)
+
+        self.assertEqual(Message.objects.filter(id__in=personal_message_ids_to_hamlet).count(), 0)
+        # Huddle messages from hamlet should have been deleted, but messages of other participants should
+        # be kept.
+        self.assertEqual(Message.objects.filter(id__in=huddle_message_ids_from_hamlet).count(), 0)
+        self.assertEqual(Message.objects.filter(id__in=huddle_message_ids_from_cordelia).count(), 3)
+
+        self.assertEqual(Message.objects.filter(sender_id=hamlet_user_id).count(), 0)
+
+        # Verify that the dummy user is subscribed to the deleted user's huddles, to keep huddle data
+        # in a correct state.
+        for recipient_id in huddle_with_hamlet_recipient_ids:
+            self.assertTrue(Subscription.objects.filter(user_profile=replacement_dummy_user,
+                                                        recipient_id=recipient_id).exists())
+
+class FakeEmailDomainTest(ZulipTestCase):
+    def test_get_fake_email_domain(self) -> None:
+        realm = get_realm("zulip")
+        self.assertEqual("zulip.testserver", get_fake_email_domain(realm))
+
+        with self.settings(EXTERNAL_HOST="example.com"):
+            self.assertEqual("zulip.example.com", get_fake_email_domain(realm))
+
+    @override_settings(FAKE_EMAIL_DOMAIN="fakedomain.com", REALM_HOSTS={"zulip": "127.0.0.1"})
+    def test_get_fake_email_domain_realm_host_is_ip_addr(self) -> None:
+        realm = get_realm("zulip")
+        self.assertEqual("fakedomain.com", get_fake_email_domain(realm))
+
+    @override_settings(FAKE_EMAIL_DOMAIN="invaliddomain", REALM_HOSTS={"zulip": "127.0.0.1"})
+    def test_invalid_fake_email_domain(self) -> None:
+        realm = get_realm("zulip")
+        with self.assertRaises(InvalidFakeEmailDomain):
+            get_fake_email_domain(realm)
+
+    @override_settings(FAKE_EMAIL_DOMAIN="127.0.0.1", REALM_HOSTS={"zulip": "127.0.0.1"})
     def test_invalid_fake_email_domain_ip(self) -> None:
         with self.assertRaises(InvalidFakeEmailDomain):
-            get_fake_email_domain()
+            realm = get_realm("zulip")
+            get_fake_email_domain(realm)

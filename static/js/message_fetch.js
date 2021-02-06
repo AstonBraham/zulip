@@ -34,8 +34,10 @@ function process_result(data, opts) {
         narrow.show_empty_narrow_message();
     }
 
-    messages.forEach(message_store.set_message_booleans);
-    messages = messages.map(message_store.add_message_metadata);
+    messages = messages.map((message) => {
+        message_store.set_message_booleans(message);
+        return message_store.add_message_metadata(message);
+    });
 
     // In case any of the newly fetched messages are new, add them to
     // our unread data structures.  It's important that this run even
@@ -178,15 +180,27 @@ exports.load_messages = function (opts) {
     }
     let data = {anchor: opts.anchor, num_before: opts.num_before, num_after: opts.num_after};
 
-    if (opts.msg_list.narrowed && narrow_state.active()) {
-        let operators = narrow_state.public_operators();
+    // This block is a hack; structurally, we want to set
+    //   data.narrow = opts.msg_list.data.filter.public_operators()
+    //
+    // But support for the message_list.all sharing of data with
+    // home_msg_list and the (hacky) page_params.narrow feature
+    // requires a somewhat ugly bundle of conditionals.
+    if (opts.msg_list === home_msg_list) {
+        if (page_params.narrow_stream !== undefined) {
+            data.narrow = JSON.stringify(page_params.narrow);
+        }
+        // Otherwise, we don't pass narrow for home_msg_list; this is
+        // required because it shares its data with all_msg_list, and
+        // so we need the server to send us message history from muted
+        // streams and topics even though home_msg_list's in:home
+        // operators will filter those.
+    } else {
+        let operators = opts.msg_list.data.filter.public_operators();
         if (page_params.narrow !== undefined) {
             operators = operators.concat(page_params.narrow);
         }
         data.narrow = JSON.stringify(operators);
-    }
-    if (opts.msg_list === home_msg_list && page_params.narrow_stream !== undefined) {
-        data.narrow = JSON.stringify(page_params.narrow);
     }
 
     let update_loading_indicator = opts.msg_list === current_msg_list;
@@ -236,6 +250,7 @@ exports.load_messages = function (opts) {
                 // retry or display a connection error.
                 //
                 // FIXME: Warn the user when this has happened?
+                message_scroll.hide_indicators();
                 const data = {
                     messages: [],
                 };

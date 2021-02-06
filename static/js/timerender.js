@@ -1,6 +1,6 @@
 "use strict";
 
-const moment = require("moment");
+const {format, parseISO, isValid} = require("date-fns");
 const XDate = require("xdate");
 
 let next_timerender_id = 0;
@@ -79,29 +79,27 @@ exports.last_seen_status_from_date = function (last_active_date, current_date) {
     if (minutes < 60) {
         return i18n.t("__minutes__ minutes ago", {minutes});
     }
-
+    const {days_old, is_older_year} = calculate_days_old_from_time(last_active_date, current_date);
     const hours = Math.floor(minutes / 60);
-    if (hours === 1) {
-        return i18n.t("An hour ago");
-    }
-    if (hours < 24) {
+
+    if (days_old === 0) {
+        if (hours === 1) {
+            return i18n.t("An hour ago");
+        }
         return i18n.t("__hours__ hours ago", {hours});
     }
 
-    const days = Math.floor(hours / 24);
-    if (days === 1) {
+    if (days_old === 1) {
         return i18n.t("Yesterday");
     }
 
-    if (days < 90) {
-        return i18n.t("__days__ days ago", {days});
-    } else if (days > 90 && days < 365) {
-        if (current_date.getFullYear() === last_active_date.getFullYear()) {
-            // Online more than 90 days ago, in the same year
-            return i18n.t("__last_active_date__", {
-                last_active_date: last_active_date.toString("MMM\u00A0dd"),
-            });
-        }
+    if (days_old < 90) {
+        return i18n.t("__days_old__ days ago", {days_old});
+    } else if (days_old > 90 && days_old < 365 && !is_older_year) {
+        // Online more than 90 days ago, in the same year
+        return i18n.t("__last_active_date__", {
+            last_active_date: last_active_date.toString("MMM\u00A0dd"),
+        });
     }
     return i18n.t("__last_active_date__", {
         last_active_date: last_active_date.toString("MMM\u00A0dd,\u00A0yyyy"),
@@ -176,8 +174,8 @@ exports.render_date = function (time, time_above, today) {
 
 // Renders the timestamp returned by the <time:> Markdown syntax.
 exports.render_markdown_timestamp = function (time, text) {
-    const hourformat = page_params.twenty_four_hour_time ? "HH:mm" : "h:mm A";
-    const timestring = time.format("ddd, MMM D YYYY, " + hourformat);
+    const hourformat = page_params.twenty_four_hour_time ? "HH:mm" : "h:mm a";
+    const timestring = format(time, "E, MMM d yyyy, " + hourformat);
     const titlestring = "This time is in your timezone. Original text was '" + text + "'.";
     return {
         text: timestring,
@@ -195,7 +193,7 @@ exports.update_timestamps = function () {
 
         for (const entry of to_process) {
             const className = entry.className;
-            const elements = $("." + className);
+            const elements = $(`.${CSS.escape(className)}`);
             // The element might not exist any more (because it
             // was in the zfilt table, or because we added
             // messages above it and re-collapsed).
@@ -234,19 +232,17 @@ exports.get_full_time = function (timestamp) {
 
 exports.get_timestamp_for_flatpickr = (timestring) => {
     let timestamp;
-    moment.suppressDeprecationWarnings = true;
     try {
         // If there's already a valid time in the compose box,
         // we use it to initialize the flatpickr instance.
-        timestamp = moment(timestring);
+        timestamp = parseISO(timestring);
     } finally {
         // Otherwise, default to showing the current time.
-        if (!timestamp || !timestamp.isValid()) {
-            timestamp = moment();
+        if (!timestamp || !isValid(timestamp)) {
+            timestamp = new Date();
         }
     }
-    moment.suppressDeprecationWarnings = false;
-    return timestamp.toDate();
+    return timestamp;
 };
 
 exports.stringify_time = function (time) {

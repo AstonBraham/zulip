@@ -10,6 +10,23 @@ below features are supported.
 
 ## Changes in Zulip 4.0
 
+**Feature level 38**
+
+* [`POST /register`](/api/register-queue): Increased
+  `realm_community_topic_editing_limit_seconds` time limit value
+  to 259200s (3 days).
+
+**Feature level 37**
+
+* Consistently provide `subscribers` in stream data when
+  clients register for subscriptions with `include_subscribers`,
+  even if the user can't access subscribers.
+
+**Feature level 36**
+
+* [`POST /users`](/api/create-user): Restricted access to organization
+  administrators with the `can_create_users` permission.
+
 **Feature level 35**
 
 * The peer_add and peer_remove subscription events now have plural

@@ -92,12 +92,7 @@ export default (_env: unknown, argv: {mode?: string}): webpack.Configuration[] =
                     test: /\.css$/,
                     exclude: path.resolve(__dirname, "static/styles"),
                     use: [
-                        {
-                            loader: MiniCssExtractPlugin.loader,
-                            options: {
-                                hmr: !production,
-                            },
-                        },
+                        MiniCssExtractPlugin.loader,
                         cacheLoader,
                         {
                             loader: "css-loader",
@@ -112,12 +107,7 @@ export default (_env: unknown, argv: {mode?: string}): webpack.Configuration[] =
                     test: /\.css$/,
                     include: path.resolve(__dirname, "static/styles"),
                     use: [
-                        {
-                            loader: MiniCssExtractPlugin.loader,
-                            options: {
-                                hmr: !production,
-                            },
-                        },
+                        MiniCssExtractPlugin.loader,
                         cacheLoader,
                         {
                             loader: "css-loader",
@@ -234,6 +224,16 @@ export default (_env: unknown, argv: {mode?: string}): webpack.Configuration[] =
             },
         },
         plugins: [
+            new webpack.ProgressPlugin({
+                handler(percentage) {
+                    if (percentage === 1) {
+                        console.log(
+                            "\u001B[34mi ｢wdm｣\u001B[0m:",
+                            "Webpack compilation successful.",
+                        );
+                    }
+                },
+            }),
             new DebugRequirePlugin(),
             new BundleTracker({
                 filename: production
@@ -266,6 +266,7 @@ export default (_env: unknown, argv: {mode?: string}): webpack.Configuration[] =
             },
             publicPath: "/webpack/",
             stats: "errors-only",
+            noInfo: true,
         },
     };
 

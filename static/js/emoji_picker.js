@@ -194,7 +194,7 @@ function get_selected_emoji() {
 
 function get_rendered_emoji(section, index) {
     const emoji_id = get_emoji_id(section, index);
-    const emoji = $(".emoji-popover-emoji[data-emoji-id='" + emoji_id + "']");
+    const emoji = $(`.emoji-popover-emoji[data-emoji-id='${CSS.escape(emoji_id)}']`);
     if (emoji.length > 0) {
         return emoji;
     }
@@ -463,7 +463,7 @@ exports.navigate = function (event_name, e) {
             // goes to beginning) with something reasonable and
             // consistent (cursor goes to the end of the filter
             // string).
-            $(".emoji-popover-filter").trigger("focus").caret(Infinity);
+            $(".emoji-popover-filter").trigger("focus").caret(Number.POSITIVE_INFINITY);
             ui.get_scroll_element($emoji_map).scrollTop(0);
             ui.get_scroll_element($(".emoji-search-results-container")).scrollTop(0);
             current_section = 0;
@@ -512,30 +512,32 @@ exports.navigate = function (event_name, e) {
 function process_keypress(e) {
     const is_filter_focused = $(".emoji-popover-filter").is(":focus");
     const pressed_key = e.which;
-    if (!is_filter_focused && pressed_key !== 58) {
+    if (
+        !is_filter_focused &&
         // ':' => 58, is a hotkey for toggling reactions popover.
-        if ((pressed_key >= 32 && pressed_key <= 126) || pressed_key === 8) {
-            // Handle only printable characters or Backspace.
-            e.preventDefault();
-            e.stopPropagation();
+        pressed_key !== 58 &&
+        ((pressed_key >= 32 && pressed_key <= 126) || pressed_key === 8)
+    ) {
+        // Handle only printable characters or Backspace.
+        e.preventDefault();
+        e.stopPropagation();
 
-            const emoji_filter = $(".emoji-popover-filter");
-            const old_query = emoji_filter.val();
-            let new_query = "";
+        const emoji_filter = $(".emoji-popover-filter");
+        const old_query = emoji_filter.val();
+        let new_query = "";
 
-            if (pressed_key === 8) {
-                // Handles Backspace.
-                new_query = old_query.slice(0, -1);
-            } else {
-                // Handles any printable character.
-                const key_str = String.fromCharCode(e.which);
-                new_query = old_query + key_str;
-            }
-
-            emoji_filter.val(new_query);
-            change_focus_to_filter();
-            filter_emojis();
+        if (pressed_key === 8) {
+            // Handles Backspace.
+            new_query = old_query.slice(0, -1);
+        } else {
+            // Handles any printable character.
+            const key_str = String.fromCharCode(e.which);
+            new_query = old_query + key_str;
         }
+
+        emoji_filter.val(new_query);
+        change_focus_to_filter();
+        filter_emojis();
     }
 }
 
@@ -544,11 +546,11 @@ exports.emoji_select_tab = function (elt) {
     const scrollheight = elt.prop("scrollHeight");
     const elt_height = elt.height();
     let currently_selected = "";
-    section_head_offsets.forEach((o) => {
+    for (const o of section_head_offsets) {
         if (scrolltop + elt_height / 2 >= o.position_y) {
             currently_selected = o.section;
         }
-    });
+    }
     // Handles the corner case of the last category being
     // smaller than half of the emoji picker height.
     if (elt_height + scrolltop === scrollheight) {
@@ -560,7 +562,9 @@ exports.emoji_select_tab = function (elt) {
     }
     if (currently_selected) {
         $(".emoji-popover-tab-item.active").removeClass("active");
-        $('.emoji-popover-tab-item[data-tab-name="' + currently_selected + '"]').addClass("active");
+        $(`.emoji-popover-tab-item[data-tab-name="${CSS.escape(currently_selected)}"]`).addClass(
+            "active",
+        );
     }
 };
 
@@ -672,7 +676,7 @@ exports.register_click_handlers = function () {
         // The following check will return false if emoji was not selected in
         // message edit form.
         if (edit_message_id !== null) {
-            const edit_message_textarea = $("#message_edit_content_" + edit_message_id);
+            const edit_message_textarea = $(`#message_edit_content_${CSS.escape(edit_message_id)}`);
             // Assign null to edit_message_id so that the selection of emoji in new
             // message composition form works correctly.
             edit_message_id = null;

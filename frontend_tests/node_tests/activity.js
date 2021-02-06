@@ -1,6 +1,12 @@
 "use strict";
 
-set_global("$", global.make_zjquery());
+const {strict: assert} = require("assert");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
+set_global("$", make_zjquery());
 const window_stub = $.create("window-stub");
 set_global("to_$", () => window_stub);
 $(window).idle = () => {};
@@ -280,7 +286,7 @@ function buddy_list_add(user_id, stub) {
         stub.attr("data-user-id", user_id);
     }
     stub.length = 1;
-    const sel = `li.user_sidebar_entry[data-user-id='${user_id}']`;
+    const sel = `li.user_sidebar_entry[data-user-id='${CSS.escape(user_id)}']`;
     $("#user_presences").set_find_results(sel, stub);
 }
 
@@ -690,9 +696,9 @@ run_test("initialize", () => {
     channel.post = function (payload) {
         payload.success({});
     };
-    global.server_events = {
+    set_global("server_events", {
         check_for_unsuspend() {},
-    };
+    });
 
     let scroll_handler_started;
     buddy_list.start_scroll_handler = () => {
@@ -719,7 +725,7 @@ run_test("initialize", () => {
             presences: {},
         });
     };
-    global.setInterval = (func) => func();
+    set_global("setInterval", (func) => func());
 
     $(window).off("focus");
     activity.initialize();

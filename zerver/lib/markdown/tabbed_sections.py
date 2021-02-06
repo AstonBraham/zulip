@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 import markdown
 from markdown.extensions import Extension
@@ -52,10 +52,6 @@ TAB_DISPLAY_NAMES = {
     'desktop': 'Desktop',
     'mobile': 'Mobile',
 
-    'cloud': 'HipChat Cloud',
-    'server': 'HipChat Server or Data Center',
-    'stride': 'Stride',
-
     'mm-default': 'Default installation',
     'mm-docker': 'Docker',
     'mm-gitlab-omnibus': 'GitLab Omnibus',
@@ -85,7 +81,7 @@ class TabbedSectionsGenerator(Extension):
         )
 
 class TabbedSectionsPreprocessor(Preprocessor):
-    def __init__(self, md: markdown.Markdown, config: Dict[str, Any]) -> None:
+    def __init__(self, md: markdown.Markdown, config: Mapping[str, Any]) -> None:
         super().__init__(md)
 
     def run(self, lines: List[str]) -> List[str]:

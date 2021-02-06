@@ -4,6 +4,7 @@ const render_announce_stream_docs = require("../templates/announce_stream_docs.h
 const render_new_stream_users = require("../templates/new_stream_users.hbs");
 const render_subscription_invites_warning_modal = require("../templates/subscription_invites_warning_modal.hbs");
 
+const peer_data = require("./peer_data");
 const people = require("./people");
 
 let created_stream;
@@ -145,10 +146,9 @@ function create_stream() {
     // newline characters (by pressing the Enter key) it would still be possible to copy
     // and paste over a description with newline characters in it. Prevent that.
     if (description.includes("\n")) {
-        ui_report.message(
+        ui_report.client_error(
             i18n.t("The stream description cannot contain newline characters."),
             $(".stream_create_info"),
-            "alert-error",
         );
         return undefined;
     }
@@ -257,13 +257,15 @@ exports.show_new_stream_modal = function () {
     $("#stream-creation").removeClass("hide");
     $(".right .settings").hide();
 
-    const all_users = people.get_people_for_stream_create();
-    // Add current user on top of list
-    all_users.unshift(people.get_by_user_id(page_params.user_id));
-    const html = render_new_stream_users({
-        users: all_users,
-        streams: stream_data.get_streams_for_settings_page(),
-        is_admin: page_params.is_admin,
+    const html = blueslip.measure_time("render new stream users", () => {
+        const all_users = people.get_people_for_stream_create();
+        // Add current user on top of list
+        all_users.unshift(people.get_by_user_id(page_params.user_id));
+        return render_new_stream_users({
+            users: all_users,
+            streams: stream_data.get_streams_for_settings_page(),
+            is_admin: page_params.is_admin,
+        });
     });
 
     const container = $("#people_to_add");
@@ -289,7 +291,7 @@ exports.show_new_stream_modal = function () {
         const elem = $(this);
         const stream_id = Number.parseInt(elem.attr("data-stream-id"), 10);
         const checked = elem.find("input").prop("checked");
-        const subscriber_ids = stream_data.get_sub_by_id(stream_id).subscribers;
+        const subscriber_ids = new Set(peer_data.get_subscribers(stream_id));
 
         $("#user-checkboxes label.checkbox").each(function () {
             const user_elem = $(this);

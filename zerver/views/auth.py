@@ -601,8 +601,11 @@ def redirect_to_misconfigured_ldap_notice(request: HttpResponse, error_type: int
 def show_deactivation_notice(request: HttpRequest) -> HttpResponse:
     realm = get_realm_from_request(request)
     if realm and realm.deactivated:
+        context = {"deactivated_domain_name": realm.name}
+        if realm.deactivated_redirect is not None:
+            context["deactivated_redirect"] = realm.deactivated_redirect
         return render(request, "zerver/deactivated.html",
-                      context={"deactivated_domain_name": realm.name})
+                      context=context)
 
     return HttpResponseRedirect(reverse('login_page'))
 
@@ -815,10 +818,9 @@ def api_dev_fetch_api_key(request: HttpRequest, username: str=REQ()) -> HttpResp
     # this condition of Django so no need to check if LDAP backend is
     # enabled.
     validate_login_email(username)
-
-    subdomain = get_subdomain(request)
-    realm = get_realm(subdomain)
-
+    realm = get_realm_from_request(request)
+    if realm is None:
+        return json_error(_("Invalid subdomain"))
     return_data: Dict[str, bool] = {}
     user_profile = authenticate(dev_auth_username=username,
                                 realm=realm,
@@ -851,9 +853,12 @@ def api_dev_list_users(request: HttpRequest) -> HttpResponse:
 @has_request_variables
 def api_fetch_api_key(request: HttpRequest, username: str=REQ(), password: str=REQ()) -> HttpResponse:
     return_data: Dict[str, bool] = {}
-    subdomain = get_subdomain(request)
-    realm = get_realm(subdomain)
-    if not ldap_auth_enabled(realm=get_realm_from_request(request)):
+
+    realm = get_realm_from_request(request)
+    if realm is None:
+        return json_error(_("Invalid subdomain"))
+
+    if not ldap_auth_enabled(realm=realm):
         # In case we don't authenticate against LDAP, check for a valid
         # email. LDAP backend can authenticate against a non-email.
         validate_login_email(username)
@@ -952,8 +957,9 @@ def api_get_server_settings(request: HttpRequest) -> HttpResponse:
 @has_request_variables
 def json_fetch_api_key(request: HttpRequest, user_profile: UserProfile,
                        password: str=REQ(default='')) -> HttpResponse:
-    subdomain = get_subdomain(request)
-    realm = get_realm(subdomain)
+    realm = get_realm_from_request(request)
+    if realm is None:
+        return json_error(_("Invalid subdomain"))
     if password_auth_enabled(user_profile.realm):
         if not authenticate(request=request, username=user_profile.delivery_email, password=password,
                             realm=realm):

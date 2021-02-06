@@ -95,7 +95,7 @@ import "../message_edit";
 import "../message_edit_history";
 import "../condense";
 import "../resize";
-import "../list_render";
+import "../list_widget";
 import "../floating_recipient_bar";
 import "../lightbox";
 import "../ui_report";
@@ -193,6 +193,7 @@ import "../search_pill";
 import "../search_pill_widget";
 import "../stream_ui_updates";
 import "../spoilers";
+import "../desktop_integration";
 
 // Import styles
 

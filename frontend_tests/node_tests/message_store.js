@@ -1,5 +1,12 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {with_stub} = require("../zjsunit/stub");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
 const util = zrequire("util");
 zrequire("pm_conversations");
 const people = zrequire("people");
@@ -7,7 +14,7 @@ zrequire("message_store");
 
 const noop = function () {};
 
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 set_global("document", "document-stub");
 
 set_global("alert_words", {
@@ -163,14 +170,14 @@ run_test("message_booleans_parity", () => {
         const update_message = {topic: "update_booleans"};
         message_store.set_message_booleans(set_message);
         message_store.update_booleans(update_message, flags);
-        Object.keys(expected_message).forEach((key) => {
+        for (const key of Object.keys(expected_message)) {
             assert.equal(
                 set_message[key],
                 expected_message[key],
                 `'${key}' != ${expected_message[key]}`,
             );
             assert.equal(update_message[key], expected_message[key]);
-        });
+        }
         assert.equal(set_message.topic, "set_message_booleans");
         assert.equal(update_message.topic, "update_booleans");
     };
@@ -346,7 +353,7 @@ run_test("message_id_change", () => {
         new_id: 402,
     };
 
-    global.with_stub((stub) => {
+    with_stub((stub) => {
         home_msg_list.change_message_id = stub.f;
         message_store.reify_message_id(opts);
         const msg_id = stub.get_args("old", "new");
@@ -355,7 +362,7 @@ run_test("message_id_change", () => {
     });
 
     home_msg_list.view = {};
-    global.with_stub((stub) => {
+    with_stub((stub) => {
         home_msg_list.view.change_message_id = stub.f;
         message_store.reify_message_id(opts);
         const msg_id = stub.get_args("old", "new");

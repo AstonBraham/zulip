@@ -7,6 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Type, Union
+from urllib.parse import urlencode
 
 import pytz
 from django.conf import settings
@@ -14,7 +15,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import connection
 from django.db.models.query import QuerySet
-from django.http import HttpRequest, HttpResponse, HttpResponseNotFound
+from django.http import HttpRequest, HttpResponse, HttpResponseNotFound, HttpResponseRedirect
 from django.shortcuts import render
 from django.template import loader
 from django.urls import reverse
@@ -34,7 +35,6 @@ from analytics.models import (
     StreamCount,
     UserCount,
     installation_epoch,
-    last_successful_fill,
 )
 from confirmation.models import Confirmation, _properties, confirmation_url
 from confirmation.settings import STATUS_ACTIVE
@@ -45,8 +45,10 @@ from zerver.decorator import (
     to_utc_datetime,
     zulip_login_required,
 )
+from zerver.forms import check_subdomain_available
 from zerver.lib.actions import (
     do_change_plan_type,
+    do_change_realm_subdomain,
     do_deactivate_realm,
     do_scrub_realm,
     do_send_realm_reactivation_email,
@@ -305,7 +307,7 @@ def get_chart_data(request: HttpRequest, user_profile: UserProfile, chart_name: 
             else:
                 start = realm.date_created
         if end is None:
-            end = max(last_successful_fill(stat.property) or
+            end = max(stat.last_successful_fill() or
                       datetime.min.replace(tzinfo=timezone.utc) for stat in stats)
 
         if start > end and (timezone_now() - start > MAX_TIME_FOR_FULL_ANALYTICS_GENERATION):
@@ -557,7 +559,7 @@ def realm_summary_table(realm_minutes: Dict[str, float]) -> str:
                     analytics_realmcount
                 WHERE
                     property = 'realm_active_humans::day'
-                    AND end_time > now() - interval '25 hours'
+                    AND end_time = %(realm_active_humans_end_time)s
             ) as _14day_active_humans_table ON realm.id = _14day_active_humans_table.realm_id
             LEFT OUTER JOIN (
                 SELECT
@@ -567,7 +569,7 @@ def realm_summary_table(realm_minutes: Dict[str, float]) -> str:
                     analytics_realmcount
                 WHERE
                     property = '7day_actives::day'
-                    AND end_time > now() - interval '25 hours'
+                    AND end_time = %(seven_day_actives_end_time)s
             ) as wau_table ON realm.id = wau_table.realm_id
             LEFT OUTER JOIN (
                 SELECT
@@ -577,7 +579,7 @@ def realm_summary_table(realm_minutes: Dict[str, float]) -> str:
                     analytics_realmcount
                 WHERE
                     property = '1day_actives::day'
-                    AND end_time > now() - interval '25 hours'
+                    AND end_time = %(one_day_actives_end_time)s
             ) as dau_table ON realm.id = dau_table.realm_id
             LEFT OUTER JOIN (
                 SELECT
@@ -588,7 +590,7 @@ def realm_summary_table(realm_minutes: Dict[str, float]) -> str:
                 WHERE
                     property = 'active_users_audit:is_bot:day'
                     AND subgroup = 'false'
-                    AND end_time > now() - interval '25 hours'
+                    AND end_time = %(active_users_audit_end_time)s
             ) as user_count_table ON realm.id = user_count_table.realm_id
             LEFT OUTER JOIN (
                 SELECT
@@ -599,7 +601,7 @@ def realm_summary_table(realm_minutes: Dict[str, float]) -> str:
                 WHERE
                     property = 'active_users_audit:is_bot:day'
                     AND subgroup = 'true'
-                    AND end_time > now() - interval '25 hours'
+                    AND end_time = %(active_users_audit_end_time)s
             ) as bot_count_table ON realm.id = bot_count_table.realm_id
         WHERE
             _14day_active_humans IS NOT NULL
@@ -610,7 +612,12 @@ def realm_summary_table(realm_minutes: Dict[str, float]) -> str:
     ''')
 
     cursor = connection.cursor()
-    cursor.execute(query)
+    cursor.execute(query, {
+        'realm_active_humans_end_time': COUNT_STATS['realm_active_humans::day'].last_successful_fill(),
+        'seven_day_actives_end_time':  COUNT_STATS['7day_actives::day'].last_successful_fill(),
+        'one_day_actives_end_time': COUNT_STATS['1day_actives::day'].last_successful_fill(),
+        'active_users_audit_end_time': COUNT_STATS['active_users_audit:is_bot:day'].last_successful_fill(),
+    })
     rows = dictfetchall(cursor)
     cursor.close()
 
@@ -1108,6 +1115,11 @@ def get_confirmations(types: List[int], object_ids: List[int],
 @require_server_admin
 def support(request: HttpRequest) -> HttpResponse:
     context: Dict[str, Any] = {}
+
+    if "success_message" in request.session:
+        context["success_message"] = request.session["success_message"]
+        del request.session["success_message"]
+
     if settings.BILLING_ENABLED and request.method == "POST":
         # We check that request.POST only has two keys in it: The
         # realm_id and a field to change.
@@ -1125,63 +1137,73 @@ def support(request: HttpRequest) -> HttpResponse:
             current_plan_type = realm.plan_type
             do_change_plan_type(realm, new_plan_type)
             msg = f"Plan type of {realm.string_id} changed from {get_plan_name(current_plan_type)} to {get_plan_name(new_plan_type)} "
-            context["message"] = msg
+            context["success_message"] = msg
         elif request.POST.get("discount", None) is not None:
             new_discount = Decimal(request.POST.get("discount"))
-            current_discount = get_discount_for_realm(realm)
+            current_discount = get_discount_for_realm(realm) or 0
             attach_discount_to_realm(realm, new_discount)
-            msg = f"Discount of {realm.string_id} changed to {new_discount} from {current_discount} "
-            context["message"] = msg
+            context["success_message"] = f"Discount of {realm.string_id} changed to {new_discount}% from {current_discount}%."
+        elif request.POST.get("new_subdomain", None) is not None:
+            new_subdomain = request.POST.get("new_subdomain")
+            old_subdomain = realm.string_id
+            try:
+                check_subdomain_available(new_subdomain)
+            except ValidationError as error:
+                context["error_message"] = error.message
+            else:
+                do_change_realm_subdomain(realm, new_subdomain)
+                request.session["success_message"] = f"Subdomain changed from {old_subdomain} to {new_subdomain}"
+                return HttpResponseRedirect(reverse('support') + '?' + urlencode({'q': new_subdomain}))
         elif request.POST.get("status", None) is not None:
             status = request.POST.get("status")
             if status == "active":
                 do_send_realm_reactivation_email(realm)
-                context["message"] = f"Realm reactivation email sent to admins of {realm.string_id}."
+                context["success_message"] = f"Realm reactivation email sent to admins of {realm.string_id}."
             elif status == "deactivated":
                 do_deactivate_realm(realm, request.user)
-                context["message"] = f"{realm.string_id} deactivated."
+                context["success_message"] = f"{realm.string_id} deactivated."
         elif request.POST.get("billing_method", None) is not None:
             billing_method = request.POST.get("billing_method")
             if billing_method == "send_invoice":
                 update_billing_method_of_current_plan(realm, charge_automatically=False)
-                context["message"] = f"Billing method of {realm.string_id} updated to pay by invoice."
+                context["success_message"] = f"Billing method of {realm.string_id} updated to pay by invoice."
             elif billing_method == "charge_automatically":
                 update_billing_method_of_current_plan(realm, charge_automatically=True)
-                context["message"] = f"Billing method of {realm.string_id} updated to charge automatically."
+                context["success_message"] = f"Billing method of {realm.string_id} updated to charge automatically."
         elif request.POST.get("sponsorship_pending", None) is not None:
             sponsorship_pending = request.POST.get("sponsorship_pending")
             if sponsorship_pending == "true":
                 update_sponsorship_status(realm, True)
-                context["message"] = f"{realm.string_id} marked as pending sponsorship."
+                context["success_message"] = f"{realm.string_id} marked as pending sponsorship."
             elif sponsorship_pending == "false":
                 update_sponsorship_status(realm, False)
-                context["message"] = f"{realm.string_id} is no longer pending sponsorship."
+                context["success_message"] = f"{realm.string_id} is no longer pending sponsorship."
         elif request.POST.get('approve_sponsorship') is not None:
             if request.POST.get('approve_sponsorship') == "approve_sponsorship":
                 approve_sponsorship(realm)
-                context["message"] = f"Sponsorship approved for {realm.string_id}"
+                context["success_message"] = f"Sponsorship approved for {realm.string_id}"
         elif request.POST.get('downgrade_method', None) is not None:
             downgrade_method = request.POST.get('downgrade_method')
             if downgrade_method == "downgrade_at_billing_cycle_end":
                 downgrade_at_the_end_of_billing_cycle(realm)
-                context["message"] = f"{realm.string_id} marked for downgrade at the end of billing cycle"
+                context["success_message"] = f"{realm.string_id} marked for downgrade at the end of billing cycle"
             elif downgrade_method == "downgrade_now_without_additional_licenses":
                 downgrade_now_without_creating_additional_invoices(realm)
-                context["message"] = f"{realm.string_id} downgraded without creating additional invoices"
+                context["success_message"] = f"{realm.string_id} downgraded without creating additional invoices"
             elif downgrade_method == "downgrade_now_void_open_invoices":
                 downgrade_now_without_creating_additional_invoices(realm)
                 voided_invoices_count = void_all_open_invoices(realm)
-                context["message"] = f"{realm.string_id} downgraded and voided {voided_invoices_count} open invoices"
+                context["success_message"] = f"{realm.string_id} downgraded and voided {voided_invoices_count} open invoices"
         elif request.POST.get("scrub_realm", None) is not None:
             if request.POST.get("scrub_realm") == "scrub_realm":
                 do_scrub_realm(realm, acting_user=request.user)
-                context["message"] = f"{realm.string_id} scrubbed."
+                context["success_message"] = f"{realm.string_id} scrubbed."
 
     query = request.GET.get("q", None)
     if query:
         key_words = get_invitee_emails_set(query)
 
-        context["users"] = UserProfile.objects.filter(delivery_email__in=key_words)
+        users = set(UserProfile.objects.filter(delivery_email__in=key_words))
         realms = set(Realm.objects.filter(string_id__in=key_words))
 
         for key_word in key_words:
@@ -1198,7 +1220,7 @@ def support(request: HttpRequest) -> HttpResponse:
                 except Realm.DoesNotExist:
                     pass
             except ValidationError:
-                pass
+                users.update(UserProfile.objects.filter(full_name__iexact=key_word))
 
         for realm in realms:
             realm.customer = get_customer_by_realm(realm)
@@ -1214,6 +1236,10 @@ def support(request: HttpRequest) -> HttpResponse:
                     realm.current_plan.licenses = last_ledger_entry.licenses
                     realm.current_plan.licenses_used = get_latest_seat_count(realm)
 
+        # full_names can have , in them
+        users.update(UserProfile.objects.filter(full_name__iexact=query))
+
+        context["users"] = users
         context["realms"] = realms
 
         confirmations: List[Dict[str, Any]] = []

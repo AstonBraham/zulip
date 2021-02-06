@@ -23,7 +23,7 @@ from sentry_sdk.integrations.logging import ignore_logger
 from zerver.lib.cache import get_remote_cache_requests, get_remote_cache_time
 from zerver.lib.db import reset_queries
 from zerver.lib.debug import maybe_tracemalloc_listen
-from zerver.lib.exceptions import ErrorCode, JsonableError, MissingAuthenticationError, RateLimited
+from zerver.lib.exceptions import ErrorCode, JsonableError, MissingAuthenticationError
 from zerver.lib.html_to_text import get_content_description
 from zerver.lib.markdown import get_markdown_requests, get_markdown_time
 from zerver.lib.rate_limiter import RateLimitResult
@@ -371,6 +371,7 @@ def csrf_failure(request: HttpRequest, reason: str="") -> HttpResponse:
 
 class LocaleMiddleware(DjangoLocaleMiddleware):
     def process_response(self, request: HttpRequest, response: HttpResponse) -> HttpResponse:
+
         # This is the same as the default LocaleMiddleware, minus the
         # logic that redirects 404's that lack a prefixed language in
         # the path into having a language.  See
@@ -382,6 +383,13 @@ class LocaleMiddleware(DjangoLocaleMiddleware):
         if not (i18n_patterns_used and language_from_path):
             patch_vary_headers(response, ('Accept-Language',))
         response.setdefault('Content-Language', language)
+
+        # An additional responsibility of our override of this middleware is to save the user's language
+        # preference in a cookie. That determination is made by code handling the request
+        # and saved in the _set_language flag so that it can be used here.
+        if hasattr(request, '_set_language'):
+            response.set_cookie(settings.LANGUAGE_COOKIE_NAME, request._set_language)
+
         return response
 
 class RateLimitMiddleware(MiddlewareMixin):
@@ -407,20 +415,6 @@ class RateLimitMiddleware(MiddlewareMixin):
             self.set_response_headers(response, request._ratelimits_applied)
 
         return response
-
-    def process_exception(self, request: HttpRequest,
-                          exception: Exception) -> Optional[HttpResponse]:
-        if isinstance(exception, RateLimited):
-            # secs_to_freedom is passed to RateLimited when raising
-            secs_to_freedom = float(str(exception))
-            resp = json_error(
-                _("API usage exceeded rate limit"),
-                data={'retry-after': secs_to_freedom},
-                status=429,
-            )
-            resp['Retry-After'] = secs_to_freedom
-            return resp
-        return None
 
 class FlushDisplayRecipientCache(MiddlewareMixin):
     def process_response(self, request: HttpRequest, response: HttpResponse) -> HttpResponse:

@@ -1,6 +1,12 @@
 "use strict";
 
-set_global("$", global.make_zjquery());
+const {strict: assert} = require("assert");
+
+const {set_global, with_field, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
+set_global("$", make_zjquery());
 
 set_global("narrow_state", {});
 set_global("ui", {
@@ -65,7 +71,7 @@ run_test("build_private_messages_list", () => {
     const timestamp = 0;
     pm_conversations.recent.insert([101, 102], timestamp);
 
-    global.unread.num_unread_for_person = function () {
+    unread.num_unread_for_person = function () {
         return 1;
     };
 
@@ -94,7 +100,7 @@ run_test("build_private_messages_list", () => {
 
     assert.deepEqual(pm_data, expected_data);
 
-    global.unread.num_unread_for_person = function () {
+    unread.num_unread_for_person = function () {
         return 0;
     };
     pm_list._build_private_messages_list();
@@ -111,7 +117,7 @@ run_test("build_private_messages_list_bot", () => {
     const timestamp = 0;
     pm_conversations.recent.insert([314], timestamp);
 
-    global.unread.num_unread_for_person = function () {
+    unread.num_unread_for_person = function () {
         return 1;
     };
 

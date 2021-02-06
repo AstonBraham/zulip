@@ -36,7 +36,7 @@ exports.highlight_with_escaping_and_regex = function (regex, item) {
     let result = "";
 
     for (const piece of pieces) {
-        if (piece.match(regex)) {
+        if (regex.test(piece)) {
             result += "<strong>" + Handlebars.Utils.escapeExpression(piece) + "</strong>";
         } else {
             result += Handlebars.Utils.escapeExpression(piece);
@@ -383,13 +383,14 @@ function activity_score(sub) {
 }
 
 // Sort streams by ranking them by activity. If activity is equal,
-// as defined bv activity_score, decide based on subscriber count.
+// as defined bv activity_score, decide based on our weekly traffic
+// stats.
 exports.compare_by_activity = function (stream_a, stream_b) {
     let diff = activity_score(stream_b) - activity_score(stream_a);
     if (diff !== 0) {
         return diff;
     }
-    diff = stream_b.subscribers.size - stream_a.subscribers.size;
+    diff = (stream_b.stream_weekly_traffic || 0) - (stream_a.stream_weekly_traffic || 0);
     if (diff !== 0) {
         return diff;
     }

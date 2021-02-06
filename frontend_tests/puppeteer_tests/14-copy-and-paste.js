@@ -8,7 +8,7 @@ async function copy_messages(page, start_message, end_message) {
     return await page.evaluate(
         (start_message, end_message) => {
             function get_message_node(message) {
-                return $('.message_row .message_content:contains("' + message + '")').get(0);
+                return $(`.message_row .message_content:contains("${CSS.escape(message)}")`).get(0);
             }
 
             // select messages from start_message to end_message
@@ -24,7 +24,7 @@ async function copy_messages(page, start_message, end_message) {
             $("#copytempdiv").remove();
 
             // emulate copy event
-            $("body").trigger($.Event("keydown", {which: 67, ctrlKey: true}));
+            $("body").trigger(new $.Event("keydown", {which: 67, ctrlKey: true}));
 
             // find temp div with copied text
             const temp_div = $("#copytempdiv");

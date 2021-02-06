@@ -96,6 +96,10 @@ elif vendor == "ubuntu" and os_version in ["19.04", "19.10"]:  # disco, eoan
     POSTGRESQL_VERSION = "11"
 elif vendor == "ubuntu" and os_version == "20.04":  # focal
     POSTGRESQL_VERSION = "12"
+elif vendor == "ubuntu" and os_version == "20.10":  # groovy
+    POSTGRESQL_VERSION = "13"
+elif vendor == "neon" and os_version == "20.04":  # KDE Neon
+    POSTGRESQL_VERSION = "12"
 elif vendor == "fedora" and os_version == "29":
     POSTGRESQL_VERSION = "10"
 elif vendor == "rhel" and os_version.startswith("7."):
@@ -177,7 +181,7 @@ elif "debian" in os_families():
     SYSTEM_DEPENDENCIES = [
         *UBUNTU_COMMON_APT_DEPENDENCIES,
         f"postgresql-{POSTGRESQL_VERSION}",
-        f"postgresql-{POSTGRESQL_VERSION}-pgroonga",
+        f"postgresql-{POSTGRESQL_VERSION}-pgdg-pgroonga",
         *VENV_DEPENDENCIES,
     ]
 elif "rhel" in os_families():
@@ -186,7 +190,7 @@ elif "rhel" in os_families():
         f"postgresql{POSTGRESQL_VERSION}-server",
         f"postgresql{POSTGRESQL_VERSION}",
         f"postgresql{POSTGRESQL_VERSION}-devel",
-        f"postgresql{POSTGRESQL_VERSION}-pgroonga",
+        f"postgresql{POSTGRESQL_VERSION}-pgdg-pgroonga",
         *VENV_DEPENDENCIES,
     ]
 elif "fedora" in os_families():

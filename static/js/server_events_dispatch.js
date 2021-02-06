@@ -2,6 +2,7 @@
 
 const emoji = require("../shared/js/emoji");
 
+const peer_data = require("./peer_data");
 const people = require("./people");
 const settings_config = require("./settings_config");
 
@@ -36,7 +37,7 @@ exports.dispatch_normal_event = function dispatch_normal_event(event) {
             unread_ops.process_read_messages_event(msg_ids);
             // This methods updates message_list too and since stream_topic_history relies on it
             // this method should be called first.
-            ui.remove_messages(msg_ids);
+            message_events.remove_messages(msg_ids);
 
             if (event.message_type === "stream") {
                 stream_topic_history.remove_messages({
@@ -75,7 +76,7 @@ exports.dispatch_normal_event = function dispatch_normal_event(event) {
             break;
 
         case "muted_topics":
-            muting_ui.handle_updates(event.muted_topics);
+            muting_ui.handle_topic_updates(event.muted_topics);
             break;
 
         case "presence":
@@ -344,42 +345,28 @@ exports.dispatch_normal_event = function dispatch_normal_event(event) {
                     }
                 }
             } else if (event.op === "peer_add") {
-                event.stream_ids.forEach((stream_id) => {
+                const stream_ids = stream_data.validate_stream_ids(event.stream_ids);
+                const user_ids = people.validate_user_ids(event.user_ids);
+
+                peer_data.bulk_add_subscribers({stream_ids, user_ids});
+
+                for (const stream_id of stream_ids) {
                     const sub = stream_data.get_sub_by_id(stream_id);
-
-                    if (!sub) {
-                        blueslip.warn("Cannot find stream for peer_add: " + stream_id);
-                        return;
-                    }
-
-                    event.user_ids.forEach((user_id) => {
-                        if (!stream_data.add_subscriber(stream_id, user_id)) {
-                            blueslip.warn("Cannot process peer_add event");
-                            return;
-                        }
-                    });
-
                     subs.update_subscribers_ui(sub);
-                });
+                }
+
                 compose_fade.update_faded_users();
             } else if (event.op === "peer_remove") {
-                event.stream_ids.forEach((stream_id) => {
+                const stream_ids = stream_data.validate_stream_ids(event.stream_ids);
+                const user_ids = people.validate_user_ids(event.user_ids);
+
+                peer_data.bulk_remove_subscribers({stream_ids, user_ids});
+
+                for (const stream_id of stream_ids) {
                     const sub = stream_data.get_sub_by_id(stream_id);
-
-                    if (!sub) {
-                        blueslip.warn("Cannot find stream for peer_remove: " + stream_id);
-                        return;
-                    }
-
-                    event.user_ids.forEach((user_id) => {
-                        if (!stream_data.remove_subscriber(sub.stream_id, user_id)) {
-                            blueslip.warn("Cannot process peer_remove event.");
-                            return;
-                        }
-                    });
-
                     subs.update_subscribers_ui(sub);
-                });
+                }
+
                 compose_fade.update_faded_users();
             } else if (event.op === "remove") {
                 for (const rec of event.subscriptions) {

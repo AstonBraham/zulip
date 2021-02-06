@@ -26,7 +26,6 @@ from bitfield import BitField
 from bitfield.types import BitHandler
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, UserManager
-from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import ValidationError
 from django.core.validators import MinLengthValidator, RegexValidator, URLValidator, validate_email
 from django.db import models, transaction
@@ -172,6 +171,7 @@ def clear_supported_auth_backends_cache() -> None:
 class Realm(models.Model):
     MAX_REALM_NAME_LENGTH = 40
     MAX_REALM_SUBDOMAIN_LENGTH = 40
+    MAX_REALM_REDIRECT_URL_LENGTH = 128
 
     INVITES_STANDARD_REALM_DAILY_MAX = 3000
     MESSAGE_VISIBILITY_LIMITED = 10000
@@ -193,6 +193,9 @@ class Realm(models.Model):
 
     date_created: datetime.datetime = models.DateTimeField(default=timezone_now)
     deactivated: bool = models.BooleanField(default=False)
+
+    # Redirect URL if the Realm has moved to another server
+    deactivated_redirect = models.URLField(max_length=MAX_REALM_REDIRECT_URL_LENGTH, null=True)
 
     # See RealmDomain for the domains that apply for a given organization.
     emails_restricted_to_domains: bool = models.BooleanField(default=False)
@@ -317,7 +320,7 @@ class Realm(models.Model):
     # Whether users have access to message edit history
     allow_edit_history: bool = models.BooleanField(default=True)
 
-    DEFAULT_COMMUNITY_TOPIC_EDITING_LIMIT_SECONDS = 86400
+    DEFAULT_COMMUNITY_TOPIC_EDITING_LIMIT_SECONDS = 259200
     allow_community_topic_editing: bool = models.BooleanField(default=True)
 
     # Defaults for new users
@@ -542,7 +545,7 @@ class Realm(models.Model):
                                           is_active=True)
 
     def get_bot_domain(self) -> str:
-        return get_fake_email_domain()
+        return get_fake_email_domain(self)
 
     def get_notifications_stream(self) -> Optional['Stream']:
         if self.notifications_stream is not None and not self.notifications_stream.deactivated:
@@ -623,11 +626,10 @@ class Realm(models.Model):
     def presence_disabled(self) -> bool:
         return self.is_zephyr_mirror_realm
 
-    class Meta:
-        permissions = (
-            ('administer', "Administer a realm"),
-            ('api_super_user', "Can send messages as other users for mirroring"),
-        )
+def realm_post_delete_handler(sender: Any, **kwargs: Any) -> None:
+    # This would be better as a functools.partial, but for some reason
+    # Django doesn't call it even when it's registered as a post_delete handler.
+    flush_realm(sender, from_deletion=True, **kwargs)
 
 def realm_post_delete_handler(sender: Any, **kwargs: Any) -> None:
     # This would be better as a functools.partial, but for some reason
@@ -984,9 +986,11 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     # like native Zulip messages (with a name + avatar, etc.).
     is_mirror_dummy: bool = models.BooleanField(default=False)
 
-    # API super users are allowed to forge messages as sent by another
+    # Users with this flag set are allowed to forge messages as sent by another
     # user and to send to private streams; also used for Zephyr/Jabber mirroring.
-    is_api_super_user: bool = models.BooleanField(default=False, db_index=True)
+    can_forge_sender: bool = models.BooleanField(default=False, db_index=True)
+    # Users with this flag set can create other users via API.
+    can_create_users: bool = models.BooleanField(default=False, db_index=True)
 
     ### Notifications settings. ###
 
@@ -1121,7 +1125,7 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     # completed.
     onboarding_steps: str = models.TextField(default='[]')
 
-    zoom_token: Optional[object] = JSONField(default=None, null=True)
+    zoom_token: Optional[object] = models.JSONField(default=None, null=True)
 
     objects: UserManager = UserManager()
 
@@ -2812,6 +2816,7 @@ class AbstractRealmAuditLog(models.Model):
     USER_DEFAULT_REGISTER_STREAM_CHANGED = 130
     USER_DEFAULT_ALL_PUBLIC_STREAMS_CHANGED = 131
     USER_NOTIFICATION_SETTINGS_CHANGED = 132
+    USER_DIGEST_EMAIL_CREATED = 133
 
     REALM_DEACTIVATED = 201
     REALM_REACTIVATED = 202
@@ -3110,7 +3115,14 @@ class BotConfigData(models.Model):
 class InvalidFakeEmailDomain(Exception):
     pass
 
-def get_fake_email_domain() -> str:
+def get_fake_email_domain(realm: Realm) -> str:
+    try:
+        # Check that realm.host can be used to form valid email addresses.
+        validate_email(f"bot@{realm.host}")
+        return realm.host
+    except ValidationError:
+        pass
+
     try:
         # Check that the fake email domain can be used to form valid email addresses.
         validate_email("bot@" + settings.FAKE_EMAIL_DOMAIN)

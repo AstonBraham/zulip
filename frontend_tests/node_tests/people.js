@@ -1,17 +1,19 @@
 "use strict";
 
-const _ = require("lodash");
-const moment = require("moment-timezone");
-const rewiremock = require("rewiremock/node");
+const {strict: assert} = require("assert");
 
-const people = rewiremock.proxy(() => zrequire("people"), {
-    "moment-timezone": () => moment("20130208T080910"),
-});
+const {parseISO} = require("date-fns");
+const _ = require("lodash");
+const MockDate = require("mockdate");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
 
 set_global("message_store", {});
 set_global("page_params", {});
 set_global("settings_data", {});
 
+const people = zrequire("people");
 const settings_config = zrequire("settings_config");
 const visibility = settings_config.email_address_visibility_values;
 const admins_only = visibility.admins_only.code;
@@ -22,6 +24,8 @@ function set_email_visibility(code) {
 }
 
 set_email_visibility(admins_only);
+
+MockDate.set(parseISO("20130208T080910").getTime());
 
 const welcome_bot = {
     email: "welcome-bot@example.com",
@@ -391,18 +395,18 @@ run_test("user_timezone", () => {
         format: "H:mm",
     };
 
-    global.page_params.twenty_four_hour_time = true;
+    page_params.twenty_four_hour_time = true;
     assert.deepEqual(people.get_user_time_preferences(me.user_id), expected_pref);
 
-    expected_pref.format = "h:mm A";
-    global.page_params.twenty_four_hour_time = false;
+    expected_pref.format = "h:mm a";
+    page_params.twenty_four_hour_time = false;
     assert.deepEqual(people.get_user_time_preferences(me.user_id), expected_pref);
 
-    global.page_params.twenty_four_hour_time = true;
+    page_params.twenty_four_hour_time = true;
     assert.equal(people.get_user_time(me.user_id), "0:09");
 
     expected_pref.format = "h:mm A";
-    global.page_params.twenty_four_hour_time = false;
+    page_params.twenty_four_hour_time = false;
     assert.equal(people.get_user_time(me.user_id), "12:09 AM");
 });
 
@@ -999,9 +1003,9 @@ run_test("initialize", () => {
     const fetched_retiree = people.get_by_user_id(15);
     assert.equal(fetched_retiree.full_name, "Retiree");
 
-    assert.equal(global.page_params.realm_users, undefined);
-    assert.equal(global.page_params.cross_realm_bots, undefined);
-    assert.equal(global.page_params.realm_non_active_users, undefined);
+    assert.equal(page_params.realm_users, undefined);
+    assert.equal(page_params.cross_realm_bots, undefined);
+    assert.equal(page_params.realm_non_active_users, undefined);
 });
 
 run_test("filter_for_user_settings_search", () => {
@@ -1106,3 +1110,6 @@ run_test("get_active_message_people", () => {
     active_message_people = people.get_active_message_people();
     assert.deepEqual(active_message_people, [steven, maria]);
 });
+
+// reset to native Date()
+MockDate.reset();

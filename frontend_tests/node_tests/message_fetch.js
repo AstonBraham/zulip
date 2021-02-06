@@ -1,8 +1,14 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const _ = require("lodash");
 
-set_global("$", global.make_zjquery());
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
+set_global("$", make_zjquery());
 set_global("document", "document-stub");
 
 zrequire("message_fetch");
@@ -296,13 +302,11 @@ run_test("initialize", () => {
 function simulate_narrow() {
     const filter = {
         predicate: () => () => false,
+        public_operators: () => [{operator: "pm-with", operand: alice.email}],
     };
 
     narrow_state.active = function () {
         return true;
-    };
-    narrow_state.public_operators = function () {
-        return [{operator: "pm-with", operand: alice.email}];
     };
 
     const msg_list = new message_list.MessageList({

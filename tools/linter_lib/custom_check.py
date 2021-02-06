@@ -139,7 +139,7 @@ js_rules = RuleList(
         {'pattern': r'ui.report_success\(',
          'description': 'Deprecated function, use ui_report.success.'},
         {'pattern': r'''report.success\(["']''',
-         'description': 'Argument to report_success should be a literal string enclosed '
+         'description': 'Argument to ui_report.success should be a literal string enclosed '
                         'by i18n.t()'},
         {'pattern': r'ui.report_error\(',
          'description': 'Deprecated function, use ui_report.error.'},
@@ -148,6 +148,11 @@ js_rules = RuleList(
                         'by i18n.t()',
          'good_lines': ['ui_report.error("")', 'ui_report.error(_("text"))'],
          'bad_lines': ['ui_report.error("test")']},
+        {'pattern': r'''report.client_error\(["'][^'"]''',
+         'description': 'Argument to ui_report.client_error should be a literal string enclosed '
+                        'by i18n.t()',
+         'good_lines': ['ui_report.client_error("")', 'ui_report.client_error(_("text"))'],
+         'bad_lines': ['ui_report.client_error("test")']},
         {'pattern': r'\$\(document\)\.ready\(',
          'description': "`Use $(f) rather than `$(document).ready(f)`",
          'good_lines': ['$(function () {foo();}'],
@@ -359,16 +364,6 @@ python_rules = RuleList(
                         'stream: Stream = models.ForeignKey(Stream, on_delete=CASCADE)'],
          'bad_lines': ['desc: Optional[Text] = models.TextField()',
                        'stream: Optional[Stream] = models.ForeignKey(Stream, on_delete=CASCADE)'],
-         },
-        {'pattern': r'[\s([]Text([^\s\w]|$)',
-         'exclude': {
-             # We are likely to want to keep these dirs Python 2+3 compatible,
-             # since the plan includes extracting them to a separate project eventually.
-             'tools/lib',
-             # TODO: Update our migrations from Text->str.
-             'zerver/migrations/',
-         },
-         'description': "Now that we're a Python 3 only codebase, we don't need to use typing.Text. Please use str instead.",
          },
         {'pattern': 'exit[(]1[)]',
          'include_only': {"/management/commands/"},

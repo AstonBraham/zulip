@@ -1,7 +1,10 @@
 "use strict";
 
+const peer_data = require("./peer_data");
+
 function display_pill(sub) {
-    return "#" + sub.name + ": " + sub.subscriber_count + " users";
+    const sub_count = peer_data.get_subscriber_count(sub.stream_id);
+    return "#" + sub.name + ": " + sub_count + " users";
 }
 
 exports.create_item_from_stream_name = function (stream_name, current_items) {
@@ -36,13 +39,11 @@ exports.get_stream_name_from_item = function (item) {
 
 function get_user_ids_from_subs(items) {
     let user_ids = [];
-    const stream_ids = items.map((item) => item.stream_id);
-    for (const stream_id of stream_ids) {
-        const sub = stream_data.get_sub_by_id(stream_id);
-        if (!sub) {
-            continue;
+    for (const item of items) {
+        // only some of our items have streams (for copy-from-stream)
+        if (item.stream_id !== undefined) {
+            user_ids = user_ids.concat(peer_data.get_subscribers(item.stream_id));
         }
-        user_ids = user_ids.concat(sub.subscribers.map());
     }
     return user_ids;
 }

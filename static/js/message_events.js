@@ -41,7 +41,9 @@ function maybe_add_narrowed_messages(messages, msg_list) {
             // edited in between when they sent the message and when
             // we hear back from the server and can echo the new
             // message.  Arguably, it's counterproductive complexity.
-            new_messages = new_messages.map(message_store.add_message_metadata);
+            new_messages = new_messages.map((message) =>
+                message_store.add_message_metadata(message),
+            );
 
             message_util.add_new_messages(new_messages, msg_list);
             unread_ops.process_visible();
@@ -61,7 +63,7 @@ function maybe_add_narrowed_messages(messages, msg_list) {
 }
 
 exports.insert_new_messages = function insert_new_messages(messages, sent_by_this_client) {
-    messages = messages.map(message_store.add_message_metadata);
+    messages = messages.map((message) => message_store.add_message_metadata(message));
 
     unread.process_loaded_messages(messages);
     huddle_data.process_loaded_messages(messages);
@@ -145,7 +147,7 @@ exports.update_messages = function update_messages(events) {
 
         const new_topic = util.get_edit_event_topic(event);
 
-        const {new_stream_id} = event;
+        const new_stream_id = event.new_stream_id;
 
         // A topic edit may affect multiple messages, listed in
         // event.message_ids. event.message_id is still the first message
@@ -161,23 +163,26 @@ exports.update_messages = function update_messages(events) {
             const compose_stream_name = compose_state.stream_name();
             const orig_topic = util.get_edit_event_orig_topic(event);
 
+            const current_filter = narrow_state.filter();
             const current_selected_id = current_msg_list.selected_id();
             const selection_changed_topic = event.message_ids.includes(current_selected_id);
+            const event_messages = event.message_ids.map((id) => message_store.get(id));
+            // The event.message_ids received from the server are not in sorted order.
+            event_messages.sort((a, b) => a.id - b.id);
 
-            if (going_forward_change && stream_name && compose_stream_name) {
-                if (stream_name.toLowerCase() === compose_stream_name.toLowerCase()) {
-                    if (orig_topic === compose_state.topic()) {
-                        changed_compose = true;
-                        compose_state.topic(new_topic);
-                        compose_fade.set_focused_recipient("stream");
-                    }
-                }
+            if (
+                going_forward_change &&
+                stream_name &&
+                compose_stream_name &&
+                stream_name.toLowerCase() === compose_stream_name.toLowerCase() &&
+                orig_topic === compose_state.topic()
+            ) {
+                changed_compose = true;
+                compose_state.topic(new_topic);
+                compose_fade.set_focused_recipient("stream");
             }
 
-            const current_filter = narrow_state.filter();
-            const messages_to_rerender = [];
-            for (const id of event.message_ids) {
-                const msg = message_store.get(id);
+            for (const msg of event_messages) {
                 if (msg === undefined) {
                     continue;
                 }
@@ -221,24 +226,10 @@ exports.update_messages = function update_messages(events) {
                     topic_name: msg.topic,
                     message_id: msg.id,
                 });
-
-                if (
-                    current_filter &&
-                    current_filter.can_apply_locally() &&
-                    !current_filter.predicate()(msg)
-                ) {
-                    // This topic edit makes this message leave the
-                    // current narrow, which is not being changed as
-                    // part of processing this event.  So we should
-                    // remove the message from the current/narrowed message list.
-                    const cur_row = current_msg_list.get_row(id);
-                    if (cur_row !== undefined) {
-                        messages_to_rerender.push({id});
-                    }
-                }
             }
 
-            if (going_forward_change) {
+            if (
+                going_forward_change &&
                 // This logic is a bit awkward.  What we're trying to
                 // accomplish is two things:
                 //
@@ -252,50 +243,51 @@ exports.update_messages = function update_messages(events) {
                 //
                 // Code further down takes care of the actual rerendering of
                 // messages within a narrow.
-                if (selection_changed_topic) {
-                    if (current_filter && current_filter.has_topic(stream_name, orig_topic)) {
-                        let new_filter = current_filter;
-                        if (new_filter && stream_changed) {
-                            // TODO: This logic doesn't handle the
-                            // case where we're a guest user and the
-                            // message moves to a stream we cannot
-                            // access, which would cause the
-                            // stream_data lookup here to fail.
-                            //
-                            // The fix is likely somewhat involved, so punting for now.
-                            const new_stream_name = stream_data.get_sub_by_id(new_stream_id).name;
-                            new_filter = new_filter.filter_with_new_params({
-                                operator: "stream",
-                                operand: new_stream_name,
-                            });
-                            changed_narrow = true;
-                        }
+                selection_changed_topic &&
+                current_filter &&
+                current_filter.has_topic(stream_name, orig_topic)
+            ) {
+                let new_filter = current_filter;
+                if (new_filter && stream_changed) {
+                    // TODO: This logic doesn't handle the
+                    // case where we're a guest user and the
+                    // message moves to a stream we cannot
+                    // access, which would cause the
+                    // stream_data lookup here to fail.
+                    //
+                    // The fix is likely somewhat involved, so punting for now.
+                    const new_stream_name = stream_data.get_sub_by_id(new_stream_id).name;
+                    new_filter = new_filter.filter_with_new_params({
+                        operator: "stream",
+                        operand: new_stream_name,
+                    });
+                    changed_narrow = true;
+                }
 
-                        if (new_filter && topic_edited) {
-                            new_filter = new_filter.filter_with_new_params({
-                                operator: "topic",
-                                operand: new_topic,
-                            });
-                            changed_narrow = true;
-                        }
-                        // NOTE: We should always be changing narrows after we finish
-                        //       updating the local data and UI. This avoids conflict
-                        //       with data fetched from the server (which is already updated)
-                        //       when we move to new narrow and what data is locally available.
-                        if (changed_narrow) {
-                            const operators = new_filter.operators();
-                            const opts = {
-                                trigger: "stream/topic change",
-                                then_select_id: current_selected_id,
-                            };
-                            narrow.activate(operators, opts);
-                        }
-                    }
+                if (new_filter && topic_edited) {
+                    new_filter = new_filter.filter_with_new_params({
+                        operator: "topic",
+                        operand: new_topic,
+                    });
+                    changed_narrow = true;
+                }
+                // NOTE: We should always be changing narrows after we finish
+                //       updating the local data and UI. This avoids conflict
+                //       with data fetched from the server (which is already updated)
+                //       when we move to new narrow and what data is locally available.
+                if (changed_narrow) {
+                    const operators = new_filter.operators();
+                    const opts = {
+                        trigger: "stream/topic change",
+                        then_select_id: current_selected_id,
+                    };
+                    narrow.activate(operators, opts);
                 }
             }
 
-            // Ensure messages that are no longer part of this narrow
-            // are deleted from the message_list.
+            // Ensure messages that are no longer part of this
+            // narrow are deleted and messages that are now part
+            // of this narrow are added to the message_list.
             //
             // Even if we end up renarrowing, the message_list_data
             // part of this is important for non-rendering message
@@ -303,8 +295,19 @@ exports.update_messages = function update_messages(events) {
             // this should be a loop over all valid message_list_data
             // objects, without the rerender (which will naturally
             // happen in the following code).
-            if (!changed_narrow && messages_to_rerender.length > 0) {
-                current_msg_list.remove_and_rerender(messages_to_rerender);
+            if (!changed_narrow) {
+                let message_ids_to_remove = [];
+                if (current_filter && current_filter.can_apply_locally()) {
+                    const predicate = current_filter.predicate();
+                    message_ids_to_remove = event_messages.filter((msg) => !predicate(msg));
+                    message_ids_to_remove = message_ids_to_remove.map((msg) => msg.id);
+                }
+                // We filter out messages that do not belong to the message
+                // list and then pass these to the remove messages codepath.
+                // While we can pass all our messages to the add messages
+                // codepath as the filtering is done within the method.
+                current_msg_list.remove_and_rerender(message_ids_to_remove);
+                current_msg_list.add_messages(event_messages);
             }
         }
 
@@ -390,6 +393,17 @@ exports.update_messages = function update_messages(events) {
     unread_ui.update_unread_counts();
     stream_list.update_streams_sidebar();
     pm_list.update_private_messages();
+};
+
+exports.remove_messages = function (message_ids) {
+    for (const list of [message_list.all, home_msg_list, message_list.narrowed]) {
+        if (list === undefined) {
+            continue;
+        }
+        list.remove_and_rerender(message_ids);
+    }
+    recent_senders.update_topics_of_deleted_message_ids(message_ids);
+    recent_topics.update_topics_of_deleted_message_ids(message_ids);
 };
 
 window.message_events = exports;

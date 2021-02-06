@@ -8,7 +8,7 @@ from django.utils.timezone import now as timezone_now
 
 from analytics.lib.counts import COUNT_STATS, CountStat
 from analytics.lib.time_utils import time_range
-from analytics.models import FillState, RealmCount, UserCount, last_successful_fill
+from analytics.models import FillState, RealmCount, UserCount
 from analytics.views import rewrite_client_arrays, sort_by_totals, sort_client_labels
 from corporate.lib.stripe import add_months, update_sponsorship_status
 from corporate.models import Customer, CustomerPlan, LicenseLedger, get_customer_by_realm
@@ -440,6 +440,11 @@ class TestSupportEndpoint(ZulipTestCase):
                                              'class="copy-button" data-copytext="desdemona@zulip.com, iago@zulip.com"',
                                              ], result)
 
+        def check_othello_user_query_result(result: HttpResponse) -> None:
+            self.assert_in_success_response(['<span class="label">user</span>\n', '<h3>Othello, the Moor of Venice</h3>',
+                                             '<b>Email</b>: othello@zulip.com', '<b>Is active</b>: True<br>'
+                                             ], result)
+
         def check_zulip_realm_query_result(result: HttpResponse) -> None:
             zulip_realm = get_realm("zulip")
             self.assert_in_success_response([f'<input type="hidden" name="realm_id" value="{zulip_realm.id}"',
@@ -544,6 +549,15 @@ class TestSupportEndpoint(ZulipTestCase):
         check_zulip_realm_query_result(result)
         check_lear_realm_query_result(result)
 
+        result = self.client_get("/activity/support", {"q": "King hamlet,lear"})
+        check_hamlet_user_query_result(result)
+        check_zulip_realm_query_result(result)
+        check_lear_realm_query_result(result)
+
+        result = self.client_get("/activity/support", {"q": "Othello, the Moor of Venice"})
+        check_othello_user_query_result(result)
+        check_zulip_realm_query_result(result)
+
         result = self.client_get("/activity/support", {"q": "lear, Hamlet <hamlet@zulip.com>"})
         check_hamlet_user_query_result(result)
         check_zulip_realm_query_result(result)
@@ -632,7 +646,7 @@ class TestSupportEndpoint(ZulipTestCase):
         with mock.patch("analytics.views.attach_discount_to_realm") as m:
             result = self.client_post("/activity/support", {"realm_id": f"{lear_realm.id}", "discount": "25"})
             m.assert_called_once_with(get_realm("lear"), 25)
-            self.assert_in_success_response(["Discount of lear changed to 25 from None"], result)
+            self.assert_in_success_response(["Discount of lear changed to 25% from 0%"], result)
 
     def test_change_sponsorship_status(self) -> None:
         lear_realm = get_realm("lear")
@@ -714,6 +728,35 @@ class TestSupportEndpoint(ZulipTestCase):
             m.assert_called_once_with(lear_realm)
             self.assert_in_success_response(["Realm reactivation email sent to admins of lear"], result)
 
+    def test_change_subdomain(self) -> None:
+        cordelia = self.example_user('cordelia')
+        lear_realm = get_realm('lear')
+        self.login_user(cordelia)
+
+        result = self.client_post("/activity/support", {"realm_id": f"{lear_realm.id}",
+                                                        "new_subdomain": "new_name"})
+        self.assertEqual(result.status_code, 302)
+        self.assertEqual(result["Location"], "/login/")
+        self.login('iago')
+
+        result = self.client_post("/activity/support", {"realm_id": f"{lear_realm.id}", "new_subdomain": "new-name"})
+        self.assertEqual(result.status_code, 302)
+        self.assertEqual(result["Location"], "/activity/support?q=new-name")
+        realm_id = lear_realm.id
+        lear_realm = get_realm('new-name')
+        self.assertEqual(lear_realm.id, realm_id)
+        self.assertTrue(Realm.objects.filter(string_id='lear').exists())
+        self.assertTrue(Realm.objects.filter(string_id='lear')[0].deactivated)
+
+        result = self.client_post("/activity/support", {"realm_id": f"{lear_realm.id}", "new_subdomain": "new-name"})
+        self.assert_in_success_response(["Subdomain unavailable. Please choose a different one."], result)
+
+        result = self.client_post("/activity/support", {"realm_id": f"{lear_realm.id}", "new_subdomain": "zulip"})
+        self.assert_in_success_response(["Subdomain unavailable. Please choose a different one."], result)
+
+        result = self.client_post("/activity/support", {"realm_id": f"{lear_realm.id}", "new_subdomain": "lear"})
+        self.assert_in_success_response(["Subdomain unavailable. Please choose a different one."], result)
+
     def test_downgrade_realm(self) -> None:
         cordelia = self.example_user('cordelia')
         self.login_user(cordelia)
@@ -766,19 +809,6 @@ class TestSupportEndpoint(ZulipTestCase):
             m.assert_not_called()
 
 class TestGetChartDataHelpers(ZulipTestCase):
-    # last_successful_fill is in analytics/models.py, but get_chart_data is
-    # the only function that uses it at the moment
-    def test_last_successful_fill(self) -> None:
-        self.assertIsNone(last_successful_fill('non-existant'))
-        a_time = datetime(2016, 3, 14, 19, tzinfo=timezone.utc)
-        one_hour_before = datetime(2016, 3, 14, 18, tzinfo=timezone.utc)
-        fillstate = FillState.objects.create(property='property', end_time=a_time,
-                                             state=FillState.DONE)
-        self.assertEqual(last_successful_fill('property'), a_time)
-        fillstate.state = FillState.STARTED
-        fillstate.save()
-        self.assertEqual(last_successful_fill('property'), one_hour_before)
-
     def test_sort_by_totals(self) -> None:
         empty: List[int] = []
         value_arrays = {'c': [0, 1], 'a': [9], 'b': [1, 1, 1], 'd': empty}

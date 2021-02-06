@@ -45,9 +45,9 @@ def copy_user_settings(source_profile: UserProfile, target_profile: UserProfile)
 
     copy_hotpots(source_profile, target_profile)
 
-def get_display_email_address(user_profile: UserProfile, realm: Realm) -> str:
+def get_display_email_address(user_profile: UserProfile) -> str:
     if not user_profile.email_address_is_realm_public():
-        return f"user{user_profile.id}@{get_fake_email_domain()}"
+        return f"user{user_profile.id}@{get_fake_email_domain(user_profile.realm)}"
     return user_profile.delivery_email
 
 def get_role_for_new_user(invited_as: int, realm_creation: bool=False) -> int:
@@ -72,9 +72,14 @@ def create_user_profile(realm: Realm, email: str, password: Optional[str],
                         is_mirror_dummy: bool, tos_version: Optional[str],
                         timezone: Optional[str],
                         tutorial_status: str = UserProfile.TUTORIAL_WAITING,
-                        enter_sends: bool = False) -> UserProfile:
+                        enter_sends: bool = False,
+                        force_id: Optional[int] = None) -> UserProfile:
     now = timezone_now()
     email = UserManager.normalize_email(email)
+
+    extra_kwargs = {}
+    if force_id is not None:
+        extra_kwargs['id'] = force_id
 
     user_profile = UserProfile(is_staff=False, is_active=active,
                                full_name=full_name,
@@ -87,12 +92,13 @@ def create_user_profile(realm: Realm, email: str, password: Optional[str],
                                onboarding_steps=orjson.dumps([]).decode(),
                                default_language=realm.default_language,
                                twenty_four_hour_time=realm.default_twenty_four_hour_time,
-                               delivery_email=email)
+                               delivery_email=email,
+                               **extra_kwargs)
     if bot_type or not active:
         password = None
     if user_profile.email_address_is_realm_public():
         # If emails are visible to everyone, we can set this here and save a DB query
-        user_profile.email = get_display_email_address(user_profile, realm)
+        user_profile.email = get_display_email_address(user_profile)
     user_profile.set_password(password)
     user_profile.api_key = generate_api_key()
     return user_profile
@@ -112,7 +118,8 @@ def create_user(email: str,
                 default_sending_stream: Optional[Stream] = None,
                 default_events_register_stream: Optional[Stream] = None,
                 default_all_public_streams: Optional[bool] = None,
-                source_profile: Optional[UserProfile] = None) -> UserProfile:
+                source_profile: Optional[UserProfile] = None,
+                force_id: Optional[int] = None) -> UserProfile:
     user_profile = create_user_profile(
         realm,
         email,
@@ -123,7 +130,8 @@ def create_user(email: str,
         bot_owner,
         is_mirror_dummy,
         tos_version,
-        timezone
+        timezone,
+        force_id=force_id
     )
     user_profile.avatar_source = avatar_source
     user_profile.timezone = timezone
@@ -151,7 +159,7 @@ def create_user(email: str,
         # With restricted access to email addresses, we can't generate
         # the fake email addresses we use for display purposes without
         # a User ID, which isn't generated until the .save() above.
-        user_profile.email = get_display_email_address(user_profile, realm)
+        user_profile.email = get_display_email_address(user_profile)
         user_profile.save(update_fields=['email'])
 
     recipient = Recipient.objects.create(type_id=user_profile.id,

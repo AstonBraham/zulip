@@ -24,7 +24,7 @@ function add_messages(messages, msg_list, opts) {
 // one needs an outer element wrapping an object to use this
 // construction.
 function is_element_in_message_content(message, element_selector) {
-    return $(`<div>${message.content}</div>`).find(element_selector).length > 0;
+    return $(`<div>${message.content}</div>`).find(`${element_selector}`).length > 0;
 }
 
 exports.message_has_link = function (message) {
@@ -69,10 +69,8 @@ exports.get_messages_in_topic = function (stream_id, topic) {
 exports.get_max_message_id_in_stream = function (stream_id) {
     let max_message_id = 0;
     for (const msg of message_list.all.all_messages()) {
-        if (msg.type === "stream" && msg.stream_id === stream_id) {
-            if (msg.id > max_message_id) {
-                max_message_id = msg.id;
-            }
+        if (msg.type === "stream" && msg.stream_id === stream_id && msg.id > max_message_id) {
+            max_message_id = msg.id;
         }
     }
     return max_message_id;

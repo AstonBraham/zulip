@@ -1,5 +1,10 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
+const {zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+
 const rtl = zrequire("rtl");
 
 run_test("get_direction", () => {

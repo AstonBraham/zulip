@@ -1,8 +1,14 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const _ = require("lodash");
 
-set_global("$", global.make_zjquery());
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
+set_global("$", make_zjquery());
 set_global("document", "document-stub");
 
 zrequire("Filter", "js/filter");
@@ -191,8 +197,8 @@ run_test("merge_message_groups", () => {
     }
 
     function assert_message_groups_list_equal(list1, list2) {
-        const ids1 = list1.map(extract_group);
-        const ids2 = list2.map(extract_group);
+        const ids1 = list1.map((group) => extract_group(group));
+        const ids2 = list2.map((group) => extract_group(group));
         assert(ids1.length);
         assert.deepEqual(ids1, ids2);
     }

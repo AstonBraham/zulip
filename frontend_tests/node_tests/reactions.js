@@ -1,7 +1,15 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
+const {stub_templates} = require("../zjsunit/handlebars");
+const {set_global, with_field, zrequire} = require("../zjsunit/namespace");
+const {with_stub} = require("../zjsunit/stub");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
 set_global("document", "document-stub");
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 
 const emoji_codes = zrequire("emoji_codes", "generated/emoji/emoji_codes.json");
 const emoji = zrequire("emoji", "shared/js/emoji");
@@ -256,8 +264,8 @@ run_test("sending", (override) => {
     override("reactions.add_reaction", () => {});
     override("reactions.remove_reaction", () => {});
 
-    global.with_stub((stub) => {
-        global.channel.del = stub.f;
+    with_stub((stub) => {
+        channel.del = stub.f;
         reactions.toggle_emoji_reaction(message_id, emoji_name);
         const args = stub.get_args("args").args;
         assert.equal(args.url, "/json/messages/1001/reactions");
@@ -272,14 +280,14 @@ run_test("sending", (override) => {
         // similarly, we only exercise the failure codepath
         // Since this path calls blueslip.warn, we need to handle it.
         blueslip.expect("warn", "XHR Error Message.");
-        global.channel.xhr_error_message = function () {
+        channel.xhr_error_message = function () {
             return "XHR Error Message.";
         };
         args.error();
     });
     emoji_name = "alien"; // not set yet
-    global.with_stub((stub) => {
-        global.channel.post = stub.f;
+    with_stub((stub) => {
+        channel.post = stub.f;
         reactions.toggle_emoji_reaction(message_id, emoji_name);
         const args = stub.get_args("args").args;
         assert.equal(args.url, "/json/messages/1001/reactions");
@@ -291,12 +299,12 @@ run_test("sending", (override) => {
     });
 
     emoji_name = "inactive_realm_emoji";
-    global.with_stub((stub) => {
+    with_stub((stub) => {
         // Test removing a deactivated realm emoji. An user can interact with a
         // deactivated realm emoji only by clicking on a reaction, hence, only
         // `process_reaction_click()` codepath supports deleting/adding a deactivated
         // realm emoji.
-        global.channel.del = stub.f;
+        channel.del = stub.f;
         reactions.process_reaction_click(message_id, "realm_emoji,992");
         const args = stub.get_args("args").args;
         assert.equal(args.url, "/json/messages/1001/reactions");
@@ -308,8 +316,8 @@ run_test("sending", (override) => {
     });
 
     emoji_name = "zulip"; // Test adding zulip emoji.
-    global.with_stub((stub) => {
-        global.channel.post = stub.f;
+    with_stub((stub) => {
+        channel.post = stub.f;
         reactions.toggle_emoji_reaction(message_id, emoji_name);
         const args = stub.get_args("args").args;
         assert.equal(args.url, "/json/messages/1001/reactions");
@@ -341,7 +349,7 @@ run_test("get_reaction_section", () => {
     const message_row = $.create("some-message-row");
     const message_reactions = $.create("our-reactions-section");
 
-    message_table.set_find_results("[zid='555']", message_row);
+    message_table.set_find_results(`[zid='${CSS.escape(555)}']`, message_row);
     message_row.set_find_results(".message_reactions", message_reactions);
 
     const section = reactions.get_reaction_section(555);
@@ -382,7 +390,7 @@ run_test("add_and_remove_reaction", () => {
     };
 
     let template_called;
-    global.stub_templates((template_name, data) => {
+    stub_templates((template_name, data) => {
         template_called = true;
         assert.equal(template_name, "message_reaction");
         assert.equal(data.class, "message_reaction reacted");
@@ -431,7 +439,7 @@ run_test("add_and_remove_reaction", () => {
     reaction_element.set_find_results(".message_reaction_count", count_element);
 
     message_reactions.find = function (selector) {
-        assert.equal(selector, "[data-reaction-id='unicode_emoji,1f3b1']");
+        assert.equal(selector, "[data-reaction-id='unicode_emoji\\,1f3b1']");
         return reaction_element;
     };
 
@@ -472,7 +480,7 @@ run_test("add_and_remove_reaction", () => {
     };
 
     template_called = false;
-    global.stub_templates((template_name, data) => {
+    stub_templates((template_name, data) => {
         assert.equal(data.class, "message_reaction");
         assert(data.is_realm_emoji);
         template_called = true;
@@ -498,7 +506,7 @@ run_test("add_and_remove_reaction", () => {
     };
 
     message_reactions.find = function (selector) {
-        assert.equal(selector, "[data-reaction-id='realm_emoji,991']");
+        assert.equal(selector, "[data-reaction-id='realm_emoji\\,991']");
         return reaction_element;
     };
     reaction_element.prop = function () {};
@@ -671,7 +679,7 @@ run_test("with_view_stubs", () => {
 });
 
 run_test("error_handling", () => {
-    global.message_store.get = function () {
+    message_store.get = function () {
         return;
     };
 
@@ -760,7 +768,7 @@ run_test("process_reaction_click", () => {
         reaction_type: "unicode_emoji",
         emoji_code: "1f3b1",
     };
-    global.message_store.get = function (message_id) {
+    message_store.get = function (message_id) {
         assert.equal(message_id, 1001);
         return message;
     };
@@ -770,8 +778,8 @@ run_test("process_reaction_click", () => {
         emoji_name: "smile",
         emoji_code: "1f642",
     };
-    global.with_stub((stub) => {
-        global.channel.del = stub.f;
+    with_stub((stub) => {
+        channel.del = stub.f;
         reactions.process_reaction_click(message_id, "unicode_emoji,1f642");
         const args = stub.get_args("args").args;
         assert.equal(args.url, "/json/messages/1001/reactions");
@@ -826,12 +834,12 @@ run_test("duplicates", () => {
 });
 
 run_test("process_reaction_click errors", () => {
-    global.message_store.get = () => undefined;
+    message_store.get = () => undefined;
     blueslip.expect("error", "reactions: Bad message id: 55");
     blueslip.expect("error", "message_id for reaction click is unknown: 55");
     reactions.process_reaction_click(55, "whatever");
 
-    global.message_store.get = () => message;
+    message_store.get = () => message;
     blueslip.expect(
         "error",
         "Data integrity problem for reaction bad-local-id (message some-msg-id)",

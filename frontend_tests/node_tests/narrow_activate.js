@@ -1,7 +1,13 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
 const util = zrequire("util");
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 
 zrequire("narrow_state");
 set_global("resize", {
@@ -56,7 +62,7 @@ set_global("recent_topics", {
 //
 // We have strange hacks in narrow.activate to sleep 0
 // seconds.
-global.patch_builtin("setTimeout", (f, t) => {
+set_global("setTimeout", (f, t) => {
     assert.equal(t, 0);
     f();
 });
@@ -115,11 +121,10 @@ function test_helper() {
 
 function stub_message_list() {
     message_list.MessageList = function (opts) {
-        const list = this;
         this.data = opts.data;
         this.view = {
             set_message_offset(offset) {
-                list.view.offset = offset;
+                this.offset = offset;
             },
         };
 

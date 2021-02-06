@@ -102,7 +102,9 @@ function get_events_success(events) {
         try {
             messages = echo.process_from_server(messages);
             if (messages.length > 0) {
-                messages.forEach(message_store.set_message_booleans);
+                for (const message of messages) {
+                    message_store.set_message_booleans(message);
+                }
 
                 const sent_by_this_client = messages.some((msg) =>
                     sent_messages.messages.has(msg.local_id),
@@ -299,7 +301,7 @@ exports.check_for_unsuspend = function () {
         watchdog_time = new_time;
         // Our app's JS wasn't running, which probably means the machine was
         // asleep.
-        $(document).trigger($.Event("unsuspend"));
+        $(document).trigger("unsuspend");
     }
     watchdog_time = new_time;
 };

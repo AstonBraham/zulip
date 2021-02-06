@@ -1,6 +1,7 @@
 import copy
 import datetime
 import zlib
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import ahocorasick
@@ -78,6 +79,29 @@ class UnreadMessagesResult(TypedDict):
     mentions: List[int]
     count: int
 
+@dataclass
+class SendMessageRequest:
+    message: Message
+    stream: Optional[Stream]
+    local_id: Optional[int]
+    sender_queue_id: Optional[int]
+    realm: Realm
+    mention_data: MentionData
+    active_user_ids: Set[int]
+    push_notify_user_ids: Set[int]
+    stream_push_user_ids: Set[int]
+    stream_email_user_ids: Set[int]
+    um_eligible_user_ids: Set[int]
+    long_term_idle_user_ids: Set[int]
+    default_bot_user_ids: Set[int]
+    service_bot_tuples: List[Tuple[int, int]]
+    wildcard_mention_user_ids: Set[int]
+    links_for_embed: Set[str]
+    widget_content: Optional[Dict[str, Any]]
+    submessages: List[Dict[str, Any]] = field(default_factory=list)
+    deliver_at: Optional[datetime.datetime] = None
+    delivery_type: Optional[str] = None
+
 # We won't try to fetch more unread message IDs from the database than
 # this limit.  The limit is super high, in large part because it means
 # client-side code mostly doesn't need to think about the case that a
@@ -89,7 +113,12 @@ def truncate_content(content: str, max_length: int, truncation_message: str) -> 
         content = content[:max_length - len(truncation_message)] + truncation_message
     return content
 
-def truncate_body(body: str) -> str:
+def normalize_body(body: str) -> str:
+    body = body.rstrip()
+    if len(body) == 0:
+        raise JsonableError(_("Message must not be empty"))
+    if '\x00' in body:
+        raise JsonableError(_("Message must not contain null bytes"))
     return truncate_content(body, MAX_MESSAGE_LENGTH, "\n[message truncated]")
 
 def truncate_topic(topic: str) -> str:

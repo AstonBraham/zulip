@@ -1,5 +1,13 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
+const markdown_test_cases = require("../../zerver/tests/fixtures/markdown_test_cases.json");
+const markdown_assert = require("../zjsunit/markdown_assert");
+const {set_global, with_field, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
 zrequire("hash_util");
 
 const emoji = zrequire("emoji", "shared/js/emoji");
@@ -54,7 +62,7 @@ fenced_code.initialize(pygments_data);
 const doc = "";
 set_global("document", doc);
 
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 
 const cordelia = {
     full_name: "Cordelia Lear",
@@ -129,12 +137,11 @@ const amp_group = {
     members: [],
 };
 
-global.user_groups.add(hamletcharacters);
-global.user_groups.add(backend);
-global.user_groups.add(edgecase_group);
-global.user_groups.add(amp_group);
+user_groups.add(hamletcharacters);
+user_groups.add(backend);
+user_groups.add(edgecase_group);
+user_groups.add(amp_group);
 
-const stream_data = global.stream_data;
 const denmark = {
     subscribed: false,
     color: "blue",
@@ -191,8 +198,6 @@ run_test("fenced_block_defaults", () => {
 
 markdown.initialize(page_params.realm_filters, markdown_config.get_helpers());
 
-const markdown_data = global.read_fixture_data("markdown_test_cases.json");
-
 run_test("markdown_detection", () => {
     const no_markup = [
         "This is a plaintext message",
@@ -230,22 +235,22 @@ run_test("markdown_detection", () => {
         "YouTube URL https://www.youtube.com/watch?v=HHZ8iqswiCw&feature=youtu.be&a",
     ];
 
-    no_markup.forEach((content) => {
+    for (const content of no_markup) {
         assert.equal(markdown.contains_backend_only_syntax(content), false);
-    });
+    }
 
-    markup.forEach((content) => {
+    for (const content of markup) {
         assert.equal(markdown.contains_backend_only_syntax(content), true);
-    });
+    }
 });
 
 run_test("marked_shared", () => {
-    const tests = markdown_data.regular_tests;
+    const tests = markdown_test_cases.regular_tests;
 
-    tests.forEach((test) => {
+    for (const test of tests) {
         // Ignore tests if specified
         if (test.ignore === true) {
-            return;
+            continue;
         }
 
         const message = {raw_content: test.input};
@@ -254,14 +259,14 @@ run_test("marked_shared", () => {
         const output = message.content;
         const error_message = `Failure in test: ${test.name}`;
         if (test.marked_expected_output) {
-            global.markdown_assert.notEqual(test.expected_output, output, error_message);
-            global.markdown_assert.equal(test.marked_expected_output, output, error_message);
+            markdown_assert.notEqual(test.expected_output, output, error_message);
+            markdown_assert.equal(test.marked_expected_output, output, error_message);
         } else if (test.backend_only_rendering) {
             assert.equal(markdown.contains_backend_only_syntax(test.input), true);
         } else {
-            global.markdown_assert.equal(test.expected_output, output, error_message);
+            markdown_assert.equal(test.expected_output, output, error_message);
         }
-    });
+    }
 });
 
 run_test("message_flags", () => {
@@ -526,7 +531,7 @@ run_test("marked", () => {
         },
     ];
 
-    test_cases.forEach((test_case) => {
+    for (const test_case of test_cases) {
         // Disable emoji conversion by default.
         page_params.translate_emoticons = test_case.translate_emoticons || false;
 
@@ -537,7 +542,7 @@ run_test("marked", () => {
         markdown.apply_markdown(message);
         const output = message.content;
         assert.equal(output, expected);
-    });
+    }
 });
 
 run_test("topic_links", () => {
@@ -666,9 +671,9 @@ run_test("backend_only_realm_filters", () => {
         "Here is the PR-#123.",
         "Function abc() was introduced in (PR)#123.",
     ];
-    backend_only_realm_filters.forEach((content) => {
+    for (const content of backend_only_realm_filters) {
         assert.equal(markdown.contains_backend_only_syntax(content), true);
-    });
+    }
 });
 
 run_test("python_to_js_filter", () => {

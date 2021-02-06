@@ -1,10 +1,13 @@
 "use strict";
 
 const {FoldDict} = require("./fold_dict");
-const {LazySet} = require("./lazy_set");
+const peer_data = require("./peer_data");
 const people = require("./people");
 const settings_config = require("./settings_config");
 const util = require("./util");
+
+// Expose get_subscriber_count for our automated puppeteer tests.
+exports.get_subscriber_count = peer_data.get_subscriber_count;
 
 class BinaryDict {
     /*
@@ -133,6 +136,8 @@ exports.stream_post_policy_values = {
 };
 
 exports.clear_subscriptions = function () {
+    // This function is only used once at page load, and then
+    // it should only be used in tests.
     stream_info = new BinaryDict((sub) => sub.subscribed);
     subs_by_stream_id = new Map();
 };
@@ -186,36 +191,25 @@ exports.rename_sub = function (sub, new_name) {
 
 exports.subscribe_myself = function (sub) {
     const user_id = people.my_current_user_id();
-    exports.add_subscriber(sub.stream_id, user_id);
+    peer_data.add_subscriber(sub.stream_id, user_id);
     sub.subscribed = true;
     sub.newly_subscribed = true;
     stream_info.set_true(sub.name, sub);
 };
 
-exports.is_subscriber_subset = function (sub1, sub2) {
-    if (sub1.subscribers && sub2.subscribers) {
-        const sub2_set = sub2.subscribers;
-
-        return Array.from(sub1.subscribers.keys()).every((key) => sub2_set.has(key));
-    }
-
-    return false;
-};
-
 exports.unsubscribe_myself = function (sub) {
     // Remove user from subscriber's list
     const user_id = people.my_current_user_id();
-    exports.remove_subscriber(sub.stream_id, user_id);
+    peer_data.remove_subscriber(sub.stream_id, user_id);
     sub.subscribed = false;
     sub.newly_subscribed = false;
     stream_info.set_false(sub.name, sub);
 };
 
 exports.add_sub = function (sub) {
-    if (!Object.prototype.hasOwnProperty.call(sub, "subscribers")) {
-        sub.subscribers = new LazySet([]);
-    }
-
+    // This function is currently used only by tests.
+    // We use create_sub_from_server_data at page load.
+    // We use create_streams for new streams in live-update events.
     stream_info.set(sub.name, sub);
     subs_by_stream_id.set(sub.stream_id, sub);
 };
@@ -226,6 +220,25 @@ exports.get_sub = function (stream_name) {
 
 exports.get_sub_by_id = function (stream_id) {
     return subs_by_stream_id.get(stream_id);
+};
+
+exports.validate_stream_ids = function (stream_ids) {
+    const good_ids = [];
+    const bad_ids = [];
+
+    for (const stream_id of stream_ids) {
+        if (subs_by_stream_id.has(stream_id)) {
+            good_ids.push(stream_id);
+        } else {
+            bad_ids.push(stream_id);
+        }
+    }
+
+    if (bad_ids.length > 0) {
+        blueslip.warn(`We have untracked stream_ids: ${bad_ids}`);
+    }
+
+    return good_ids;
 };
 
 exports.get_stream_id = function (name) {
@@ -355,6 +368,25 @@ exports.get_unsorted_subs = function () {
     return Array.from(stream_info.values());
 };
 
+exports.get_sub_for_settings = (sub) => {
+    // Since we make a copy of the sub here, it may eventually
+    // make sense to get the other calculated fields here as
+    // well, instead of using update_calculated_fields everywhere.
+    const sub_count = peer_data.get_subscriber_count(sub.stream_id);
+    return {
+        ...sub,
+        subscriber_count: sub_count,
+    };
+};
+
+function get_subs_for_settings(subs) {
+    // We may eventually add subscribers to the subs here, rather than
+    // delegating, so that we can more efficiently compute subscriber counts
+    // (in bulk).  If that plan appears to have been aborted, feel free to
+    // inline this.
+    return subs.map((sub) => exports.get_sub_for_settings(sub));
+}
+
 exports.get_updated_unsorted_subs = function () {
     // This function is expensive in terms of calculating
     // some values (particularly stream counts) but avoids
@@ -371,7 +403,7 @@ exports.get_updated_unsorted_subs = function () {
         all_subs = all_subs.filter((sub) => sub.subscribed);
     }
 
-    return all_subs;
+    return get_subs_for_settings(all_subs);
 };
 
 exports.num_subscribed_subs = function () {
@@ -426,57 +458,8 @@ exports.get_colors = function () {
     return exports.subscribed_subs().map((sub) => sub.color);
 };
 
-exports.update_subscribers_count = function (sub) {
-    const count = sub.subscribers.size;
-    sub.subscriber_count = count;
-};
-
-exports.potential_subscribers = function (sub) {
-    /*
-        This is a list of unsubscribed users
-        for the current stream, who the current
-        user could potentially subscribe to the
-        stream.  This may include some bots.
-
-        We currently use it for typeahead in
-        stream_edit.js.
-
-        This may be a superset of the actual
-        subscribers that you can change in some cases
-        (like if you're a guest?); we should refine this
-        going forward, especially if we use it for something
-        other than typeahead.  (The guest use case
-        may be moot now for other reasons.)
-    */
-
-    function is_potential_subscriber(person) {
-        // Use verbose style to force better test
-        // coverage, plus we may add more conditions over
-        // time.
-        if (sub.subscribers.has(person.user_id)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    return people.filter_all_users(is_potential_subscriber);
-};
-
 exports.update_stream_email_address = function (sub, email) {
     sub.email_address = email;
-};
-
-exports.get_subscriber_count = function (stream_id) {
-    const sub = exports.get_sub_by_id(stream_id);
-    if (sub === undefined) {
-        blueslip.warn("We got a get_subscriber_count count call for a non-existent stream.");
-        return undefined;
-    }
-    if (!sub.subscribers) {
-        return 0;
-    }
-    return sub.subscribers.size;
 };
 
 exports.update_stream_post_policy = function (sub, stream_post_policy) {
@@ -507,6 +490,8 @@ exports.receives_notifications = function (stream_id, notification_name) {
 };
 
 exports.update_calculated_fields = function (sub) {
+    // Note that we don't calculate subscriber counts here.
+
     sub.is_realm_admin = page_params.is_admin;
     // Admin can change any stream's name & description either stream is public or
     // private, subscribed or unsubscribed.
@@ -530,7 +515,6 @@ exports.update_calculated_fields = function (sub) {
     if (sub.rendered_description !== undefined) {
         sub.rendered_description = sub.rendered_description.replace("<p>", "").replace("</p>", "");
     }
-    exports.update_subscribers_count(sub);
 
     // Apply the defaults for our notification settings for rendering.
     for (const setting of settings_config.stream_specific_notification_settings) {
@@ -647,9 +631,9 @@ exports.all_topics_in_cache = function (sub) {
 exports.set_realm_default_streams = function (realm_default_streams) {
     default_stream_ids.clear();
 
-    realm_default_streams.forEach((stream) => {
+    for (const stream of realm_default_streams) {
         default_stream_ids.add(stream.stream_id);
-    });
+    }
 };
 
 exports.get_default_stream_ids = function () {
@@ -689,42 +673,6 @@ exports.maybe_get_stream_name = function (stream_id) {
     return stream.name;
 };
 
-exports.set_subscribers = function (sub, user_ids) {
-    sub.subscribers = new LazySet(user_ids || []);
-};
-
-exports.add_subscriber = function (stream_id, user_id) {
-    const sub = exports.get_sub_by_id(stream_id);
-    if (typeof sub === "undefined") {
-        blueslip.warn("We got an add_subscriber call for a non-existent stream.");
-        return false;
-    }
-    const person = people.get_by_user_id(user_id);
-    if (person === undefined) {
-        blueslip.error("We tried to add invalid subscriber: " + user_id);
-        return false;
-    }
-    sub.subscribers.add(user_id);
-
-    return true;
-};
-
-exports.remove_subscriber = function (stream_id, user_id) {
-    const sub = exports.get_sub_by_id(stream_id);
-    if (typeof sub === "undefined") {
-        blueslip.warn("We got a remove_subscriber call for a non-existent stream " + stream_id);
-        return false;
-    }
-    if (!sub.subscribers.has(user_id)) {
-        blueslip.warn("We tried to remove invalid subscriber: " + user_id);
-        return false;
-    }
-
-    sub.subscribers.delete(user_id);
-
-    return true;
-};
-
 exports.is_user_subscribed = function (stream_id, user_id) {
     const sub = exports.get_sub_by_id(stream_id);
     if (typeof sub === "undefined" || !sub.can_access_subscribers) {
@@ -740,7 +688,7 @@ exports.is_user_subscribed = function (stream_id, user_id) {
         return undefined;
     }
 
-    return sub.subscribers.has(user_id);
+    return peer_data.is_user_subscribed(stream_id, user_id);
 };
 
 exports.create_streams = function (streams) {
@@ -797,7 +745,7 @@ exports.create_sub_from_server_data = function (attrs) {
         ...attrs,
     };
 
-    exports.set_subscribers(sub, subscriber_user_ids);
+    peer_data.set_subscribers(sub.stream_id, subscriber_user_ids);
 
     if (!sub.color) {
         sub.color = color_data.pick_color();
@@ -805,7 +753,8 @@ exports.create_sub_from_server_data = function (attrs) {
 
     exports.update_calculated_fields(sub);
 
-    exports.add_sub(sub);
+    stream_info.set(sub.name, sub);
+    subs_by_stream_id.set(sub.stream_id, sub);
 
     return sub;
 };
@@ -866,7 +815,7 @@ exports.get_streams_for_settings_page = function () {
         exports.update_calculated_fields(sub);
     }
 
-    return all_subs;
+    return get_subs_for_settings(all_subs);
 };
 
 exports.sort_for_stream_settings = function (stream_ids, order) {
@@ -897,9 +846,7 @@ exports.sort_for_stream_settings = function (stream_ids, order) {
     }
 
     function by_subscriber_count(id_a, id_b) {
-        const out =
-            exports.get_sub_by_id(id_b).subscribers.size -
-            exports.get_sub_by_id(id_a).subscribers.size;
+        const out = peer_data.get_subscriber_count(id_b) - peer_data.get_subscriber_count(id_a);
         if (out === 0) {
             return by_stream_name(id_a, id_b);
         }
@@ -985,12 +932,12 @@ exports.initialize = function (params) {
     color_data.claim_colors(subscriptions);
 
     function populate_subscriptions(subs, subscribed, previously_subscribed) {
-        subs.forEach((sub) => {
+        for (const sub of subs) {
             sub.subscribed = subscribed;
             sub.previously_subscribed = previously_subscribed;
 
             exports.create_sub_from_server_data(sub);
-        });
+        }
     }
 
     exports.set_realm_default_streams(realm_default_streams);

@@ -1,11 +1,17 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const _ = require("lodash");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
 
 const _page_params = {};
 
 set_global("page_params", _page_params);
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 const people = zrequire("people");
 zrequire("presence");
 zrequire("user_status");

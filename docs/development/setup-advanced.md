@@ -88,6 +88,13 @@ Store.
    NODE_PORT=5672
    ```
 
+1. Make sure you are inside the WSL disk and not in a Windows mounted disk.
+   You will run into permission issues if you run `provision` from `zulip`
+   in a Windows mounted disk.
+   ```
+   cd ~  # or cd /home/USERNAME
+   ```
+
 1. [Clone your fork of the Zulip repository][zulip-rtd-git-cloning]
    and [connecting the Zulip upstream repository][zulip-rtd-git-connect]:
 
@@ -150,7 +157,7 @@ eventually eliminate this documentation section altogether).
 You can use
 [our provisioning tool](#installing-directly-on-ubuntu-debian-centos-or-fedora)
 to set up the Zulip development environment on current versions of
-these platforms reliably and easily, so we no long maintain manual
+these platforms reliably and easily, so we no longer maintain manual
 installation instructions for these platforms.
 
 If `tools/provision` doesn't yet support a newer release of Debian or

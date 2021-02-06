@@ -15,6 +15,7 @@
         "warnOnUnsupportedTypeScriptVersion": false,
         "sourceType": "unambiguous"
     },
+    "reportUnusedDisableDirectives": true,
     "rules": {
         "array-callback-return": "error",
         "arrow-body-style": "error",
@@ -37,12 +38,7 @@
             }
         ],
         "import/unambiguous": "error",
-        "new-cap": [
-            "error",
-            {
-                "capIsNew": false
-            }
-        ],
+        "new-cap": "error",
         "no-alert": "error",
         "no-array-constructor": "error",
         "no-bitwise": "error",
@@ -77,13 +73,6 @@
         "no-undef-init": "error",
         "no-unneeded-ternary": ["error", {"defaultAssignment": false}],
         "no-unused-expressions": "error",
-        "no-unused-vars": [
-            "error",
-            {
-                "vars": "local",
-                "varsIgnorePattern": "print_elapsed_time|check_duplicate_ids"
-            }
-        ],
         "no-use-before-define": ["error", {"functions": false}],
         "no-useless-concat": "error",
         "no-useless-constructor": "error",
@@ -103,7 +92,6 @@
         "unicorn/consistent-function-scoping": "off",
         "unicorn/explicit-length-check": "off",
         "unicorn/filename-case": "off",
-        "unicorn/no-fn-reference-in-iterator": "off",
         "unicorn/no-nested-ternary": "off",
         "unicorn/no-null": "off",
         "unicorn/no-process-exit": "off",
@@ -180,8 +168,8 @@
                 "jQuery": false,
                 "keydown_util": false,
                 "lightbox": false,
-                "list_render": false,
                 "list_util": false,
+                "ListWidget": false,
                 "loading": false,
                 "localStorage": false,
                 "local_message": false,
@@ -228,7 +216,6 @@
                 "resize": false,
                 "rows": false,
                 "rtl": false,
-                "run_test": false,
                 "schema": false,
                 "scroll_bar": false,
                 "scroll_util": false,
@@ -361,13 +348,10 @@
         {
             "files": ["frontend_tests/**"],
             "globals": {
-                "assert": false,
+                "CSS": false,
                 "document": false,
-                "reset_module": false,
-                "set_global": false,
-                "window": false,
-                "with_field": false,
-                "zrequire": false
+                "navigator": false,
+                "window": false
             },
             "rules": {
                 "no-sync": "off"

@@ -5,14 +5,12 @@ const render_dropdown_list = require("../templates/settings/dropdown_list.hbs");
 const DropdownListWidget = function (opts) {
     const init = () => {
         // Run basic sanity checks on opts, and set up sane defaults.
-        opts = Object.assign(
-            {
-                null_value: null,
-                render_text: (item_name) => item_name,
-                on_update: () => {},
-            },
-            opts,
-        );
+        opts = {
+            null_value: null,
+            render_text: (item_name) => item_name,
+            on_update: () => {},
+            ...opts,
+        };
         opts.container_id = `${opts.widget_name}_widget`;
         opts.value_id = `id_${opts.widget_name}`;
         if (opts.value === undefined) {
@@ -23,9 +21,9 @@ const DropdownListWidget = function (opts) {
     init();
 
     const render = (value) => {
-        $(`#${opts.container_id} #${opts.value_id}`).data("value", value);
+        $(`#${CSS.escape(opts.container_id)} #${CSS.escape(opts.value_id)}`).data("value", value);
 
-        const elem = $(`#${opts.container_id} #${opts.widget_name}_name`);
+        const elem = $(`#${CSS.escape(opts.container_id)} #${CSS.escape(opts.widget_name)}_name`);
 
         if (!value || value === opts.null_value) {
             elem.text(opts.default_text);
@@ -48,21 +46,23 @@ const DropdownListWidget = function (opts) {
     };
 
     const register_event_handlers = () => {
-        $(`#${opts.container_id} .dropdown-list-body`).on("click keypress", ".list_item", function (
-            e,
-        ) {
-            const setting_elem = $(this).closest(`.${opts.widget_name}_setting`);
-            if (e.type === "keypress") {
-                if (e.which === 13) {
-                    setting_elem.find(".dropdown-menu").dropdown("toggle");
-                } else {
-                    return;
+        $(`#${CSS.escape(opts.container_id)} .dropdown-list-body`).on(
+            "click keypress",
+            ".list_item",
+            function (e) {
+                const setting_elem = $(this).closest(`.${CSS.escape(opts.widget_name)}_setting`);
+                if (e.type === "keypress") {
+                    if (e.which === 13) {
+                        setting_elem.find(".dropdown-menu").dropdown("toggle");
+                    } else {
+                        return;
+                    }
                 }
-            }
-            const value = $(this).attr("data-value");
-            update(value);
-        });
-        $(`#${opts.container_id} .dropdown_list_reset_button`).on("click", (e) => {
+                const value = $(this).attr("data-value");
+                update(value);
+            },
+        );
+        $(`#${CSS.escape(opts.container_id)} .dropdown_list_reset_button`).on("click", (e) => {
             update(opts.null_value);
             e.preventDefault();
         });
@@ -70,12 +70,16 @@ const DropdownListWidget = function (opts) {
 
     const setup = () => {
         // populate the dropdown
-        const dropdown_list_body = $(`#${opts.container_id} .dropdown-list-body`).expectOne();
-        const search_input = $(`#${opts.container_id} .dropdown-search > input[type=text]`);
-        const dropdown_toggle = $(`#${opts.container_id} .dropdown-toggle`);
+        const dropdown_list_body = $(
+            `#${CSS.escape(opts.container_id)} .dropdown-list-body`,
+        ).expectOne();
+        const search_input = $(
+            `#${CSS.escape(opts.container_id)} .dropdown-search > input[type=text]`,
+        );
+        const dropdown_toggle = $(`#${CSS.escape(opts.container_id)} .dropdown-toggle`);
 
-        list_render.create(dropdown_list_body, opts.data, {
-            name: `${opts.widget_name}_list`,
+        ListWidget.create(dropdown_list_body, opts.data, {
+            name: `${CSS.escape(opts.widget_name)}_list`,
             modifier(item) {
                 return render_dropdown_list({item});
             },
@@ -85,9 +89,9 @@ const DropdownListWidget = function (opts) {
                     return item.name.toLowerCase().includes(value);
                 },
             },
-            simplebar_container: $(`#${opts.container_id} .dropdown-list-wrapper`),
+            simplebar_container: $(`#${CSS.escape(opts.container_id)} .dropdown-list-wrapper`),
         });
-        $(`#${opts.container_id} .dropdown-search`).on("click", (e) => {
+        $(`#${CSS.escape(opts.container_id)} .dropdown-search`).on("click", (e) => {
             e.stopPropagation();
         });
 
@@ -107,7 +111,7 @@ const DropdownListWidget = function (opts) {
                 return;
             }
             e.preventDefault();
-            const custom_event = jQuery.Event("keydown.dropdown.data-api", {
+            const custom_event = new jQuery.Event("keydown.dropdown.data-api", {
                 keyCode: e.keyCode,
                 which: e.keyCode,
             });
@@ -119,7 +123,9 @@ const DropdownListWidget = function (opts) {
     };
 
     const value = () => {
-        let val = $(`#${opts.container_id} #${opts.value_id}`).data("value");
+        let val = $(`#${CSS.escape(opts.container_id)} #${CSS.escape(opts.value_id)}`).data(
+            "value",
+        );
         if (val === null) {
             val = "";
         }

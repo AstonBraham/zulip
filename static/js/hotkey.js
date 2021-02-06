@@ -89,7 +89,7 @@ const keypress_mappings = {
     71: {name: "G_end", message_view_only: true}, // 'G'
     74: {name: "vim_page_down", message_view_only: true}, // 'J'
     75: {name: "vim_page_up", message_view_only: true}, // 'K'
-    77: {name: "toggle_mute", message_view_only: true}, // 'M'
+    77: {name: "toggle_topic_mute", message_view_only: true}, // 'M'
     80: {name: "narrow_private", message_view_only: true}, // 'P'
     82: {name: "respond_to_author", message_view_only: true}, // 'R'
     83: {name: "narrow_by_topic", message_view_only: true}, //'S'
@@ -564,18 +564,14 @@ exports.process_hotkey = function (e, hotkey) {
         return false;
     }
 
-    if (event_name === "up_arrow") {
-        if (list_util.inside_list(e)) {
-            list_util.go_up(e);
-            return true;
-        }
+    if (event_name === "up_arrow" && list_util.inside_list(e)) {
+        list_util.go_up(e);
+        return true;
     }
 
-    if (event_name === "down_arrow") {
-        if (list_util.inside_list(e)) {
-            list_util.go_down(e);
-            return true;
-        }
+    if (event_name === "down_arrow" && list_util.inside_list(e)) {
+        list_util.go_down(e);
+        return true;
     }
 
     if (menu_dropdown_hotkeys.has(event_name)) {
@@ -623,11 +619,9 @@ exports.process_hotkey = function (e, hotkey) {
     // The next two sections date back to 00445c84 and are Mac/Chrome-specific,
     // and they should possibly be eliminated in favor of keeping standard
     // browser behavior.
-    if (event_name === "backspace") {
-        if ($("#compose-send-button").is(":focus")) {
-            // Ignore Backspace; don't navigate back a page.
-            return true;
-        }
+    if (event_name === "backspace" && $("#compose-send-button").is(":focus")) {
+        // Ignore Backspace; don't navigate back a page.
+        return true;
     }
 
     if (event_name === "narrow_to_compose_target") {
@@ -657,7 +651,7 @@ exports.process_hotkey = function (e, hotkey) {
         } else if (event_name === "page_down") {
             // so that it always goes to the end of the text box.
             const height = $(":focus")[0].scrollHeight;
-            $(":focus").caret(Infinity).animate({scrollTop: height}, "fast");
+            $(":focus").caret(Number.POSITIVE_INFINITY).animate({scrollTop: height}, "fast");
             return true;
         } else if (event_name === "search_with_k") {
             // Do nothing; this allows one to use Ctrl+K inside compose.
@@ -849,8 +843,8 @@ exports.process_hotkey = function (e, hotkey) {
             reactions.toggle_emoji_reaction(msg.id, canonical_name);
             return true;
         }
-        case "toggle_mute":
-            muting_ui.toggle_mute(msg);
+        case "toggle_topic_mute":
+            muting_ui.toggle_topic_mute(msg);
             return true;
         case "toggle_message_collapse":
             condense.toggle_collapse(msg);

@@ -1,6 +1,7 @@
 "use strict";
 
 const Handlebars = require("handlebars/runtime");
+const _ = require("lodash");
 
 const render_compose_all_everyone = require("../templates/compose_all_everyone.hbs");
 const render_compose_announce = require("../templates/compose_announce.hbs");
@@ -8,6 +9,7 @@ const render_compose_invite_users = require("../templates/compose_invite_users.h
 const render_compose_not_subscribed = require("../templates/compose_not_subscribed.hbs");
 const render_compose_private_stream_alert = require("../templates/compose_private_stream_alert.hbs");
 
+const peer_data = require("./peer_data");
 const people = require("./people");
 const rendered_markdown = require("./rendered_markdown");
 const settings_config = require("./settings_config");
@@ -28,7 +30,7 @@ let user_acknowledged_announce;
 let wildcard_mention;
 let uppy;
 
-exports.all_everyone_warn_threshold = 15;
+exports.wildcard_mention_large_stream_threshold = 15;
 exports.announce_warn_threshold = 60;
 
 exports.uploads_domain = document.location.protocol + "//" + document.location.host;
@@ -44,7 +46,7 @@ function make_uploads_relative(content) {
 }
 
 function show_all_everyone_warnings(stream_id) {
-    const stream_count = stream_data.get_subscriber_count(stream_id) || 0;
+    const stream_count = peer_data.get_subscriber_count(stream_id) || 0;
 
     const all_everyone_template = render_compose_all_everyone({
         count: stream_count,
@@ -95,7 +97,7 @@ function show_sending_indicator(whats_happening) {
 }
 
 function show_announce_warnings(stream_id) {
-    const stream_count = stream_data.get_subscriber_count(stream_id) || 0;
+    const stream_count = peer_data.get_subscriber_count(stream_id) || 0;
 
     const announce_template = render_compose_announce({count: stream_count});
     const error_area_announce = $("#compose-announce");
@@ -186,12 +188,11 @@ exports.abort_xhr = function () {
 exports.zoom_token_callbacks = new Map();
 exports.video_call_xhrs = new Map();
 
-exports.abort_video_callbacks = function (edit_message_id) {
-    const key = edit_message_id || "";
-    exports.zoom_token_callbacks.delete(key);
-    if (exports.video_call_xhrs.has(key)) {
-        exports.video_call_xhrs.get(key).abort();
-        exports.video_call_xhrs.delete(key);
+exports.abort_video_callbacks = function (edit_message_id = "") {
+    exports.zoom_token_callbacks.delete(edit_message_id);
+    if (exports.video_call_xhrs.has(edit_message_id)) {
+        exports.video_call_xhrs.get(edit_message_id).abort();
+        exports.video_call_xhrs.delete(edit_message_id);
     }
 };
 
@@ -425,7 +426,7 @@ exports.do_post_send_tasks = function () {
     exports.clear_preview_area();
     // TODO: Do we want to fire the event even if the send failed due
     // to a server-side error?
-    $(document).trigger($.Event("compose_finished.zulip"));
+    $(document).trigger("compose_finished.zulip");
 };
 
 exports.update_email = function (user_id, new_email) {
@@ -528,15 +529,8 @@ exports.wildcard_mention_allowed = function () {
 };
 
 function validate_stream_message_mentions(stream_id) {
-    const stream_count = stream_data.get_subscriber_count(stream_id) || 0;
+    const stream_count = peer_data.get_subscriber_count(stream_id) || 0;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-    // check if wildcard_mention has any mention and henceforth execute the warning message.
-    if (wildcard_mention !== null && stream_count > exports.all_everyone_warn_threshold) {
-=======
-=======
->>>>>>> Edits
     // If the user is attempting to do a wildcard mention in a large
     // stream, check if they permission to do so.
     if (
@@ -550,14 +544,6 @@ function validate_stream_message_mentions(stream_id) {
             return false;
         }
 
-<<<<<<< HEAD
->>>>>>> compose: Show error for wildcard messages according to settings.
-=======
-=======
-    // check if wildcard_mention has any mention and henceforth execute the warning message.
-    if (wildcard_mention !== null && stream_count > exports.all_everyone_warn_threshold) {
->>>>>>> Edits
->>>>>>> Edits
         if (
             user_acknowledged_all_everyone === undefined ||
             user_acknowledged_all_everyone === false
@@ -580,7 +566,7 @@ function validate_stream_message_mentions(stream_id) {
 }
 
 function validate_stream_message_announce(sub) {
-    const stream_count = stream_data.get_subscriber_count(sub.stream_id) || 0;
+    const stream_count = peer_data.get_subscriber_count(sub.stream_id) || 0;
 
     if (sub.name === "announce" && stream_count > exports.announce_warn_threshold) {
         if (user_acknowledged_announce === undefined || user_acknowledged_announce === false) {
@@ -916,7 +902,7 @@ exports.render_and_show_preview = function (preview_spinner, preview_content_box
             // Handle previews of /me messages
             rendered_preview_html =
                 "<p><strong>" +
-                page_params.full_name +
+                _.escape(page_params.full_name) +
                 "</strong>" +
                 rendered_content.slice("<p>/me".length);
         } else {
@@ -995,11 +981,15 @@ exports.warn_if_private_stream_is_linked = function (linked_stream) {
         return;
     }
 
-    if (stream_data.is_subscriber_subset(compose_stream, linked_stream)) {
-        // Don't warn if subscribers list of current compose_stream is
-        // a subset of linked_stream's subscribers list, because
-        // everyone will be subscribed to the linked stream and so
-        // knows it exists.
+    // Don't warn if subscribers list of current compose_stream is
+    // a subset of linked_stream's subscribers list, because
+    // everyone will be subscribed to the linked stream and so
+    // knows it exists.  (But always warn Zephyr users, since
+    // we may not know their stream's subscribers.)
+    if (
+        peer_data.is_subscriber_subset(compose_stream.stream_id, linked_stream.stream_id) &&
+        !page_params.realm_is_zephyr_mirror_realm
+    ) {
         return;
     }
 
@@ -1202,7 +1192,7 @@ exports.initialize = function () {
         // compose box.
         const edit_message_id = $(e.target).attr("data-message-id");
         if (edit_message_id !== undefined) {
-            target_textarea = $("#message_edit_content_" + edit_message_id);
+            target_textarea = $(`#message_edit_content_${CSS.escape(edit_message_id)}`);
         }
 
         let video_call_link;

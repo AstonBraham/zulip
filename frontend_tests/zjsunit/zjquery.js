@@ -1,9 +1,14 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const noop = function () {};
 
 class Event {
     constructor(type, props) {
+        if (!(this instanceof Event)) {
+            return new Event(type, props);
+        }
         this.type = type;
         Object.assign(this, props);
     }
@@ -110,7 +115,10 @@ exports.make_event_store = (selector) => {
 
         trigger($element, ev, data) {
             if (typeof ev === "string") {
-                ev = new Event(ev, data);
+                ev = new Event(ev);
+            }
+            if (!ev.target) {
+                ev.target = $element;
             }
             const func = on_functions.get(ev.type);
 
@@ -292,9 +300,9 @@ exports.make_new_elem = function (selector, opts) {
         },
         removeClass(class_names) {
             class_names = class_names.split(" ");
-            class_names.forEach((class_name) => {
+            for (const class_name of class_names) {
                 classes.delete(class_name);
-            });
+            }
             return self;
         },
         remove() {
@@ -513,7 +521,7 @@ exports.make_zjquery = function (opts) {
         return res;
     };
 
-    zjquery.Event = (type, props) => new Event(type, props);
+    zjquery.Event = Event;
 
     fn.after = function (s) {
         return s;
@@ -526,9 +534,6 @@ exports.make_zjquery = function (opts) {
 
     zjquery.clear_all_elements = function () {
         elems.clear();
-    };
-    zjquery.escapeSelector = function (s) {
-        return s;
     };
 
     return zjquery;

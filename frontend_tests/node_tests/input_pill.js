@@ -1,6 +1,12 @@
 "use strict";
 
-set_global("$", global.make_zjquery());
+const {strict: assert} = require("assert");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
+set_global("$", make_zjquery());
 zrequire("input_pill");
 
 zrequire("templates");
@@ -87,7 +93,7 @@ run_test("basics", () => {
 });
 
 function set_up() {
-    set_global("$", global.make_zjquery());
+    set_global("$", make_zjquery());
     const items = {
         blue: {
             display_value: "BLUE",

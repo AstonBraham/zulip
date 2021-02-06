@@ -1,11 +1,17 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const rewiremock = require("rewiremock/node");
+
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
 
 // Dependencies
 set_global(
     "$",
-    global.make_zjquery({
+    make_zjquery({
         silent: true,
     }),
 );

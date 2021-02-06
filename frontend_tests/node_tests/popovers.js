@@ -1,8 +1,15 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const rewiremock = require("rewiremock/node");
 
-set_global("$", global.make_zjquery());
+const {stub_templates} = require("../zjsunit/handlebars");
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
+
+set_global("$", make_zjquery());
 
 zrequire("hash_util");
 zrequire("narrow");
@@ -139,7 +146,7 @@ run_test("sender_hover", (override) => {
         return {};
     };
 
-    global.stub_templates((fn, opts) => {
+    stub_templates((fn, opts) => {
         switch (fn) {
             case "no_arrow_popover":
                 assert.deepEqual(opts, {
@@ -237,7 +244,7 @@ run_test("actions_popover", (override) => {
         };
     };
 
-    global.stub_templates((fn, opts) => {
+    stub_templates((fn, opts) => {
         // TODO: Test all the properties of the popover
         switch (fn) {
             case "actions_popover_content":

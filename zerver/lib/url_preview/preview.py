@@ -27,9 +27,8 @@ link_regex = re.compile(
 
 # Use Chrome User-Agent, since some sites refuse to work on old browsers
 ZULIP_URL_PREVIEW_USER_AGENT = (
-    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ZulipURLPreview/{version}; '
-    '+{external_host}) Chrome/81.0.4044.113 Safari/537.36'
-).format(version=ZULIP_VERSION, external_host=settings.EXTERNAL_HOST)
+    'Mozilla/5.0 (compatible; ZulipURLPreview/{version}; +{external_host})'
+).format(version=ZULIP_VERSION, external_host=settings.ROOT_DOMAIN_URI)
 
 # FIXME: This header and timeout are not used by pyoembed, when trying to autodiscover!
 HEADERS = {'User-Agent': ZULIP_URL_PREVIEW_USER_AGENT}
@@ -91,12 +90,16 @@ def get_link_embed_data(url: str,
 
     response = requests.get(mark_sanitized(url), stream=True, headers=HEADERS, timeout=TIMEOUT)
     if response.ok:
-        og_data = OpenGraphParser(response.text).extract_data()
+        og_data = OpenGraphParser(
+            response.content, response.headers.get("Content-Type")
+        ).extract_data()
         for key in ['title', 'description', 'image']:
             if not data.get(key) and og_data.get(key):
                 data[key] = og_data[key]
 
-        generic_data = GenericParser(response.text).extract_data() or {}
+        generic_data = GenericParser(
+            response.content, response.headers.get("Content-Type")
+        ).extract_data() or {}
         for key in ['title', 'description', 'image']:
             if not data.get(key) and generic_data.get(key):
                 data[key] = generic_data[key]

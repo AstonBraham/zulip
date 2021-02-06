@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 
 import orjson
 from django.conf import settings
-from django.contrib.auth.views import INTERNAL_RESET_URL_TOKEN
+from django.contrib.auth.views import PasswordResetConfirmView
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
@@ -35,6 +35,7 @@ from zerver.lib.actions import (
     add_new_user_history,
     do_add_default_stream,
     do_change_full_name,
+    do_change_realm_subdomain,
     do_change_user_role,
     do_create_default_stream_group,
     do_create_realm,
@@ -171,6 +172,35 @@ class DeactivationNoticeTestCase(ZulipTestCase):
 
         result = self.client_get('/accounts/deactivated/')
         self.assertIn("Zulip Dev, has been deactivated.", result.content.decode())
+        self.assertNotIn("It has moved to", result.content.decode())
+
+    def test_deactivation_notice_when_deactivated_and_deactivated_redirect_is_set(self) -> None:
+        realm = get_realm("zulip")
+        realm.deactivated = True
+        realm.deactivated_redirect = "http://example.zulipchat.com"
+        realm.save(update_fields=["deactivated", "deactivated_redirect"])
+
+        result = self.client_get('/accounts/deactivated/')
+        self.assertIn('It has moved to <a href="http://example.zulipchat.com">http://example.zulipchat.com</a>.', result.content.decode())
+
+    def test_deactivation_notice_when_realm_subdomain_is_changed(self) -> None:
+        realm = get_realm("zulip")
+        do_change_realm_subdomain(realm, "new-subdomain-name")
+
+        result = self.client_get('/accounts/deactivated/')
+        self.assertIn('It has moved to <a href="http://new-subdomain-name.testserver">http://new-subdomain-name.testserver</a>.', result.content.decode())
+
+    def test_deactivated_redirect_field_of_placeholder_realms_are_modified_on_changing_subdomain_multiple_times(self) -> None:
+        realm = get_realm('zulip')
+        do_change_realm_subdomain(realm, 'new-name-1')
+
+        result = self.client_get('/accounts/deactivated/')
+        self.assertIn('It has moved to <a href="http://new-name-1.testserver">http://new-name-1.testserver</a>.', result.content.decode())
+
+        realm = get_realm('new-name-1')
+        do_change_realm_subdomain(realm, 'new-name-2')
+        result = self.client_get('/accounts/deactivated/')
+        self.assertIn('It has moved to <a href="http://new-name-2.testserver">http://new-name-2.testserver</a>.', result.content.decode())
 
 class AddNewUserHistoryTest(ZulipTestCase):
     def test_add_new_user_history_race(self) -> None:
@@ -314,7 +344,7 @@ class PasswordResetTest(ZulipTestCase):
             email, url_pattern=settings.EXTERNAL_HOST + r"(\S\S+)")
         result = self.client_get(password_reset_url)
         self.assertEqual(result.status_code, 302)
-        self.assertTrue(result.url.endswith(f'/{INTERNAL_RESET_URL_TOKEN}/'))
+        self.assertTrue(result.url.endswith(f'/{PasswordResetConfirmView.reset_url_token}/'))
 
         final_reset_url = result.url
         result = self.client_get(final_reset_url)
@@ -396,9 +426,9 @@ class PasswordResetTest(ZulipTestCase):
         do_deactivate_realm(user_profile.realm)
 
         # start the password reset process by supplying an email address
-        with patch('logging.info') as mock_logging:
+        with self.assertLogs(level="INFO") as m:
             result = self.client_post('/accounts/password/reset/', {'email': email})
-            mock_logging.assert_called_once()
+            self.assertEqual(m.output, ["INFO:root:Realm is deactivated"])
 
         # check the redirect link telling you to check mail for password reset link
         self.assertEqual(result.status_code, 302)
@@ -493,9 +523,9 @@ class PasswordResetTest(ZulipTestCase):
     def test_ldap_auth_only(self) -> None:
         """If the email auth backend is not enabled, password reset should do nothing"""
         email = self.example_email("hamlet")
-        with patch('logging.info') as mock_logging:
+        with self.assertLogs(level="INFO") as m:
             result = self.client_post('/accounts/password/reset/', {'email': email})
-            mock_logging.assert_called_once()
+            self.assertEqual(m.output, ["INFO:root:Password reset attempted for hamlet@zulip.com even though password auth is disabled."])
 
         # check the redirect link telling you to check mail for password reset link
         self.assertEqual(result.status_code, 302)
@@ -517,21 +547,20 @@ class PasswordResetTest(ZulipTestCase):
         # If the domain matches, we don't generate an email
         with self.settings(LDAP_APPEND_DOMAIN="zulip.com"):
             email = self.example_email("hamlet")
-            with patch('logging.info') as mock_logging:
+            with self.assertLogs(level="INFO") as m:
                 result = self.client_post('/accounts/password/reset/', {'email': email})
-                mock_logging.assert_called_once_with("Password reset not allowed for user in LDAP domain")
+                self.assertEqual(m.output, ["INFO:root:Password reset not allowed for user in LDAP domain"])
         from django.core.mail import outbox
         self.assertEqual(len(outbox), 0)
 
         # If the domain doesn't match, we do generate an email
         with self.settings(LDAP_APPEND_DOMAIN="example.com"):
             email = self.example_email("hamlet")
-            with patch('logging.info') as mock_logging:
-                result = self.client_post('/accounts/password/reset/', {'email': email})
-                self.assertEqual(result.status_code, 302)
-                self.assertTrue(result["Location"].endswith(
-                    "/accounts/password/reset/done/"))
-                result = self.client_get(result["Location"])
+            result = self.client_post('/accounts/password/reset/', {'email': email})
+            self.assertEqual(result.status_code, 302)
+            self.assertTrue(result["Location"].endswith(
+                "/accounts/password/reset/done/"))
+            result = self.client_get(result["Location"])
 
         body = self.get_reset_mail_body()
         self.assertIn('reset your password', body)
@@ -620,9 +649,9 @@ class LoginTest(ZulipTestCase):
         self.assert_logged_in_user_id(None)
 
     def test_login_wrong_subdomain(self) -> None:
-        with patch("logging.warning") as mock_warning:
+        with self.assertLogs(level="WARNING") as m:
             result = self.login_with_return(self.mit_email("sipbtest"), "xxx")
-            mock_warning.assert_called_once()
+            self.assertEqual(m.output, ["WARNING:root:User sipbtest@mit.edu attempted password login to wrong subdomain zulip"])
         self.assertEqual(result.status_code, 200)
         self.assert_in_response("Your Zulip account is not a member of the "
                                 "organization associated with this subdomain.", result)
@@ -651,7 +680,7 @@ class LoginTest(ZulipTestCase):
         with queries_captured() as queries, cache_tries_captured() as cache_tries:
             self.register(self.nonreg_email('test'), "test")
         # Ensure the number of queries we make is not O(streams)
-        self.assertEqual(len(queries), 72)
+        self.assertEqual(len(queries), 70)
 
         # We can probably avoid a couple cache hits here, but there doesn't
         # seem to be any O(N) behavior.  Some of the cache hits are related
@@ -679,6 +708,18 @@ class LoginTest(ZulipTestCase):
 
         with self.assertRaises(UserProfile.DoesNotExist):
             self.nonreg_user('test')
+
+    def test_register_with_invalid_email(self) -> None:
+        """
+        If you try to register with invalid email, you get an invalid email
+        page
+        """
+        invalid_email = "foo\x00bar"
+        result = self.client_post('/accounts/home/', {'email': invalid_email},
+                                  subdomain="zulip")
+
+        self.assertEqual(result.status_code, 200)
+        self.assertContains(result, "Enter a valid email address")
 
     def test_register_deactivated_partway_through(self) -> None:
         """
@@ -919,7 +960,7 @@ class InviteUserTest(InviteUserBase):
         #       the large number of queries), so I just
         #       use an approximate equality check.
         actual_count = len(queries)
-        expected_count = 281
+        expected_count = 251
         if abs(actual_count - expected_count) > 1:
             raise AssertionError(f'''
                 Unexpected number of queries:
@@ -1208,7 +1249,7 @@ earl-test@zulip.com""", ["Denmark"]))
         self.invite(invitee_emails, ["Denmark"])
         invitee_emails = ", ".join(str(i) for i in range(get_realm("zulip").max_invites - 1))
         self.assert_json_error(self.invite(invitee_emails, ["Denmark"]),
-                               "You do not have enough remaining invites. "
+                               "You do not have enough remaining invites for today. "
                                "Please contact desdemona+admin@zulip.com to have your limit raised. "
                                "No invitations were sent.")
 
@@ -1662,7 +1703,7 @@ so we didn't send them an invitation. We did send invitations to everyone else!"
         response = self.client_post(url, {"key": registration_key, "from_confirmation": 1, "full_name": "alice"})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse('login') + '?' +
-                         urlencode({"email": email}))
+                         urlencode({"email": email, "already_registered": 1}))
 
 class InvitationsTestCase(InviteUserBase):
     def test_do_get_user_invites(self) -> None:
@@ -2514,6 +2555,24 @@ class RealmCreationTest(ZulipTestCase):
         self.assertTrue(result.url.startswith('http://a-0.testserver/accounts/login/subdomain/'))
 
     @override_settings(OPEN_REALM_CREATION=True)
+    def test_create_realm_using_old_subdomain_of_a_realm(self) -> None:
+        realm = get_realm("zulip")
+        do_change_realm_subdomain(realm, "new-name")
+
+        password = "test"
+        email = "user1@test.com"
+        realm_name = "Test"
+
+        result = self.client_post('/new/', {'email': email})
+        self.client_get(result["Location"])
+        confirmation_url = self.get_confirmation_url_from_outbox(email)
+        self.client_get(confirmation_url)
+        result = self.submit_reg_form_for_user(email, password,
+                                               realm_subdomain = "zulip",
+                                               realm_name = realm_name)
+        self.assert_in_response("Subdomain unavailable. Please choose a different one.", result)
+
+    @override_settings(OPEN_REALM_CREATION=True)
     def test_subdomain_restrictions_root_domain(self) -> None:
         password = "test"
         email = "user1@test.com"
@@ -2586,13 +2645,29 @@ class RealmCreationTest(ZulipTestCase):
         self.assert_not_in_success_response(["unavailable"], result)
 
     def test_subdomain_check_management_command(self) -> None:
-        # Short names should work
-        check_subdomain_available('aa', from_management_command=True)
-        # So should reserved ones
-        check_subdomain_available('zulip', from_management_command=True)
-        # malformed names should still not
+        # Short names should not work, even with the flag
         with self.assertRaises(ValidationError):
-            check_subdomain_available('-ba_d-', from_management_command=True)
+            check_subdomain_available('aa')
+        with self.assertRaises(ValidationError):
+            check_subdomain_available('aa', allow_reserved_subdomain=True)
+
+        # Malformed names should never work
+        with self.assertRaises(ValidationError):
+            check_subdomain_available('-ba_d-')
+        with self.assertRaises(ValidationError):
+            check_subdomain_available('-ba_d-', allow_reserved_subdomain=True)
+
+        with patch('zerver.lib.name_restrictions.is_reserved_subdomain', return_value = False):
+            # Existing realms should never work even if they are not reserved keywords
+            with self.assertRaises(ValidationError):
+                check_subdomain_available('zulip')
+            with self.assertRaises(ValidationError):
+                check_subdomain_available('zulip', allow_reserved_subdomain=True)
+
+        # Reserved ones should only work with the flag
+        with self.assertRaises(ValidationError):
+            check_subdomain_available('stream')
+        check_subdomain_available('stream', allow_reserved_subdomain=True)
 
 class UserSignUpTest(InviteUserBase):
 
@@ -2611,17 +2686,12 @@ class UserSignUpTest(InviteUserBase):
             side_effect=smtplib.SMTPException('uh oh'),
         )
 
-        error_mock = patch('logging.error')
-
-        with smtp_mock, error_mock as err:
+        with smtp_mock, self.assertLogs(level="ERROR") as m:
             result = self.client_post('/accounts/home/', {'email': email})
 
         self._assert_redirected_to(result, '/config-error/smtp')
 
-        self.assertEqual(
-            err.call_args_list[0][0],
-            ('Error in accounts_home: %s', 'uh oh'),
-        )
+        self.assertEqual(m.output, ['ERROR:root:Error in accounts_home: uh oh'])
 
     def test_bad_email_configuration_for_create_realm(self) -> None:
         """
@@ -2634,17 +2704,11 @@ class UserSignUpTest(InviteUserBase):
             side_effect=smtplib.SMTPException('uh oh'),
         )
 
-        error_mock = patch('logging.error')
-
-        with smtp_mock, error_mock as err:
+        with smtp_mock, self.assertLogs(level="ERROR") as m:
             result = self.client_post('/new/', {'email': email})
 
         self._assert_redirected_to(result, '/config-error/smtp')
-
-        self.assertEqual(
-            err.call_args_list[0][0],
-            ('Error in create_realm: %s', 'uh oh'),
-        )
+        self.assertEqual(m.output, ['ERROR:root:Error in create_realm: uh oh'])
 
     def test_user_default_language_and_timezone(self) -> None:
         """
@@ -3150,14 +3214,14 @@ class UserSignUpTest(InviteUserBase):
             return_data['invalid_subdomain'] = True
 
         with patch('zerver.views.registration.authenticate', side_effect=invalid_subdomain):
-            with patch('logging.error') as mock_error:
+            with self.assertLogs(level="ERROR") as m:
                 result = self.client_post(
                     '/accounts/register/',
                     {'password': password,
                      'full_name': 'New User',
                      'key': find_key_by_email(email),
                      'terms': True})
-        mock_error.assert_called_once()
+                self.assertEqual(m.output, ["ERROR:root:Subdomain mismatch in registration zulip: newuser@zulip.com"])
         self.assertEqual(result.status_code, 302)
 
     def test_replace_subdomain_in_confirmation_link(self) -> None:
@@ -3647,18 +3711,15 @@ class UserSignUpTest(InviteUserBase):
                 LDAP_APPEND_DOMAIN='example.com',
                 AUTH_LDAP_USER_ATTR_MAP=ldap_user_attr_map,
         ):
-            with patch('zerver.views.registration.logging.warning') as mock_warning:
+            with self.assertLogs(level="WARNING") as m:
                 result = self.submit_reg_form_for_user(
                     email,
                     password,
                     from_confirmation="1",
                     # Pass HTTP_HOST for the target subdomain
                     HTTP_HOST=subdomain + ".testserver")
-                self.assertEqual(result.status_code, 200)
-                mock_warning.assert_called_once_with(
-                    "New account email %s could not be found in LDAP",
-                    "newuser@zulip.com",
-                )
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(m.output, ['WARNING:root:New account email newuser@zulip.com could not be found in LDAP'])
             with self.assertLogs('zulip.ldap', 'DEBUG') as debug_log:
                 result = self.submit_reg_form_for_user(email,
                                                        password,
@@ -3739,7 +3800,7 @@ class UserSignUpTest(InviteUserBase):
                 LDAP_EMAIL_ATTR='mail',
                 AUTH_LDAP_USER_ATTR_MAP=ldap_user_attr_map,
         ):
-            with patch('zerver.views.registration.logging.warning') as mock_warning:
+            with self.assertLogs(level="WARNING") as m:
                 result = self.submit_reg_form_for_user(
                     email,
                     password,
@@ -3747,10 +3808,7 @@ class UserSignUpTest(InviteUserBase):
                     # Pass HTTP_HOST for the target subdomain
                     HTTP_HOST=subdomain + ".testserver")
                 self.assertEqual(result.status_code, 200)
-                mock_warning.assert_called_once_with(
-                    "New account email %s could not be found in LDAP",
-                    "nonexistent@zulip.com",
-                )
+                self.assertEqual(m.output, ['WARNING:root:New account email nonexistent@zulip.com could not be found in LDAP'])
 
             with self.assertLogs('zulip.ldap', 'DEBUG') as debug_log:
                 result = self.submit_reg_form_for_user(email,

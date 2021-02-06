@@ -11,19 +11,7 @@ import urllib.parse
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from io import StringIO
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Generic,
-    Iterable,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    TypeVar,
-    Union,
-)
+from typing import Any, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar, Union
 from typing.re import Match, Pattern
 from urllib.parse import urlencode, urlsplit
 from xml.etree import ElementTree as etree
@@ -33,9 +21,15 @@ import ahocorasick
 import dateutil.parser
 import dateutil.tz
 import markdown
+import markdown.blockprocessors
+import markdown.inlinepatterns
+import markdown.postprocessors
+import markdown.treeprocessors
+import markdown.util
 import requests
 from django.conf import settings
 from django.db.models import Q
+from markdown.blockparser import BlockParser
 from markdown.extensions import codehilite, nl2br, sane_lists, tables
 from tlds import tld_set
 from typing_extensions import TypedDict
@@ -56,7 +50,7 @@ from zerver.lib.mention import extract_user_group, possible_mentions, possible_u
 from zerver.lib.tex import render_tex
 from zerver.lib.thumbnail import user_uploads_or_external
 from zerver.lib.timeout import TimeoutExpired, timeout
-from zerver.lib.timezone import get_common_timezones
+from zerver.lib.timezone import common_timezones
 from zerver.lib.url_encoding import encode_stream, hash_util_encode
 from zerver.lib.url_preview import preview as link_preview
 from zerver.models import (
@@ -1246,7 +1240,7 @@ class Timestamp(markdown.inlinepatterns.Pattern):
         time_input_string = match.group('time')
         timestamp = None
         try:
-            timestamp = dateutil.parser.parse(time_input_string, tzinfos=get_common_timezones())
+            timestamp = dateutil.parser.parse(time_input_string, tzinfos=common_timezones)
         except ValueError:
             try:
                 timestamp = datetime.datetime.fromtimestamp(float(time_input_string))
@@ -1811,7 +1805,7 @@ class AlertWordNotificationProcessor(markdown.preprocessors.Preprocessor):
             return True
         return False
 
-    def run(self, lines: Iterable[str]) -> Iterable[str]:
+    def run(self, lines: List[str]) -> List[str]:
         db_data = self.md.zulip_db_data
         if self.md.zulip_message and db_data is not None:
             # We check for alert words here, the set of which are
@@ -1879,17 +1873,32 @@ DEFAULT_MARKDOWN_KEY = -1
 ZEPHYR_MIRROR_MARKDOWN_KEY = -2
 
 class Markdown(markdown.Markdown):
-    def __init__(self, *args: Any, **kwargs: Union[bool, int, List[Any]]) -> None:
-        # define default configs
-        self.config = {
-            "realm_filters": [kwargs['realm_filters'],
-                              "Realm-specific filters for realm_filters_key {}".format(kwargs['realm'])],
-            "realm": [kwargs['realm'], "Realm id"],
-            "code_block_processor_disabled": [kwargs['code_block_processor_disabled'],
-                                              "Disabled for email gateway"],
-        }
+    zulip_message: Optional[Message]
+    zulip_realm: Optional[Realm]
+    zulip_db_data: Optional[DbData]
+    image_preview_enabled: bool
+    url_embed_preview_enabled: bool
 
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        realm_filters: List[Tuple[str, str, int]],
+        realm_filters_key: int,
+        email_gateway: bool,
+    ) -> None:
+        self.realm_filters = realm_filters
+        self.realm_filters_key = realm_filters_key
+        self.email_gateway = email_gateway
+
+        super().__init__(
+            extensions=[
+                nl2br.makeExtension(),
+                tables.makeExtension(),
+                codehilite.makeExtension(
+                    linenums=False,
+                    guess_lang=False,
+                ),
+            ],
+        )
         self.set_output_format('html')
 
     def build_parser(self) -> markdown.Markdown:
@@ -1920,7 +1929,7 @@ class Markdown(markdown.Markdown):
         preprocessors.register(AlertWordNotificationProcessor(self), 'custom_text_notifications', 20)
         return preprocessors
 
-    def build_block_parser(self) -> markdown.util.Registry:
+    def build_block_parser(self) -> BlockParser:
         # We disable the following blockparsers from upstream:
         #
         # indent - replaced by ours
@@ -1928,10 +1937,10 @@ class Markdown(markdown.Markdown):
         # olist - replaced by ours
         # ulist - replaced by ours
         # quote - replaced by ours
-        parser = markdown.blockprocessors.BlockParser(self)
+        parser = BlockParser(self)
         parser.blockprocessors.register(markdown.blockprocessors.EmptyBlockProcessor(parser), 'empty', 95)
         parser.blockprocessors.register(ListIndentProcessor(parser), 'indent', 90)
-        if not self.getConfig('code_block_processor_disabled'):
+        if not self.email_gateway:
             parser.blockprocessors.register(markdown.blockprocessors.CodeBlockProcessor(parser), 'code', 85)
         parser.blockprocessors.register(HashHeaderProcessor(parser), 'hashheader', 80)
         # We get priority 75 from 'table' extension
@@ -2000,7 +2009,7 @@ class Markdown(markdown.Markdown):
         return reg
 
     def register_realm_filters(self, inlinePatterns: markdown.util.Registry) -> markdown.util.Registry:
-        for (pattern, format_string, id) in self.getConfig("realm_filters"):
+        for (pattern, format_string, id) in self.realm_filters:
             inlinePatterns.register(RealmFilterPattern(pattern, format_string, self),
                                     f'realm_filters/{pattern}', 45)
         return inlinePatterns
@@ -2024,15 +2033,8 @@ class Markdown(markdown.Markdown):
         postprocessors.register(markdown.postprocessors.UnescapePostprocessor(), 'unescape', 10)
         return postprocessors
 
-    def getConfig(self, key: str, default: str='') -> Any:
-        """ Return a setting for the given key or an empty string. """
-        if key in self.config:
-            return self.config[key][0]
-        else:
-            return default
-
     def handle_zephyr_mirror(self) -> None:
-        if self.getConfig("realm") == ZEPHYR_MIRROR_MARKDOWN_KEY:
+        if self.realm_filters_key == ZEPHYR_MIRROR_MARKDOWN_KEY:
             # Disable almost all inline patterns for zephyr mirror
             # users' traffic that is mirrored.  Note that
             # inline_interesting_links is a treeprocessor and thus is
@@ -2046,7 +2048,7 @@ class Markdown(markdown.Markdown):
             self.preprocessors = get_sub_registry(self.preprocessors, ['custom_text_notifications'])
             self.parser.blockprocessors = get_sub_registry(self.parser.blockprocessors, ['paragraph'])
 
-md_engines: Dict[Tuple[int, bool], markdown.Markdown] = {}
+md_engines: Dict[Tuple[int, bool], Markdown] = {}
 realm_filter_data: Dict[int, List[Tuple[str, str, int]]] = {}
 
 def make_md_engine(realm_filters_key: int, email_gateway: bool) -> None:
@@ -2055,28 +2057,11 @@ def make_md_engine(realm_filters_key: int, email_gateway: bool) -> None:
         del md_engines[md_engine_key]
 
     realm_filters = realm_filter_data[realm_filters_key]
-    md_engines[md_engine_key] = build_engine(
+    md_engines[md_engine_key] = Markdown(
         realm_filters=realm_filters,
         realm_filters_key=realm_filters_key,
         email_gateway=email_gateway,
     )
-
-def build_engine(realm_filters: List[Tuple[str, str, int]],
-                 realm_filters_key: int,
-                 email_gateway: bool) -> markdown.Markdown:
-    engine = Markdown(
-        realm_filters=realm_filters,
-        realm=realm_filters_key,
-        code_block_processor_disabled=email_gateway,
-        extensions = [
-            nl2br.makeExtension(),
-            tables.makeExtension(),
-            codehilite.makeExtension(
-                linenums=False,
-                guess_lang=False,
-            ),
-        ])
-    return engine
 
 # Split the topic name into multiple sections so that we can easily use
 # our common single link matching regex on it.
@@ -2120,7 +2105,7 @@ def maybe_update_markdown_engines(realm_filters_key: Optional[int], email_gatewa
         for realm_filters_key, filters in all_filters.items():
             realm_filter_data[realm_filters_key] = filters
             make_md_engine(realm_filters_key, email_gateway)
-        # Hack to ensure that getConfig("realm") is right for mirrored Zephyrs
+        # Hack to ensure that realm_filters_key is right for mirrored Zephyrs
         realm_filter_data[ZEPHYR_MIRROR_MARKDOWN_KEY] = []
         make_md_engine(ZEPHYR_MIRROR_MARKDOWN_KEY, False)
     else:

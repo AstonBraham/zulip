@@ -1,7 +1,14 @@
 "use strict";
 
+const {strict: assert} = require("assert");
+
 const {JSDOM} = require("jsdom");
 const rewiremock = require("rewiremock/node");
+
+const {stub_templates} = require("../zjsunit/handlebars");
+const {set_global, zrequire} = require("../zjsunit/namespace");
+const {run_test} = require("../zjsunit/test");
+const {make_zjquery} = require("../zjsunit/zjquery");
 
 const events = require("./lib/events");
 
@@ -9,13 +16,11 @@ set_global("bridge", false);
 
 const noop = function () {};
 
-set_global("$", global.make_zjquery());
+set_global("$", make_zjquery());
 set_global("DOMParser", new JSDOM().window.DOMParser);
 set_global("compose_actions", {
     update_placeholder_text: noop,
 });
-
-const {LazySet} = zrequire("lazy_set");
 
 const _navigator = {
     platform: "",
@@ -63,11 +68,12 @@ set_global("ui_util", {});
 
 // Setting these up so that we can test that links to uploads within messages are
 // automatically converted to server relative links.
-global.document.location.protocol = "https:";
-global.document.location.host = "foo.com";
+document.location.protocol = "https:";
+document.location.host = "foo.com";
 
 zrequire("zcommand");
 zrequire("compose_ui");
+const peer_data = zrequire("peer_data");
 const util = zrequire("util");
 zrequire("rtl");
 zrequire("common");
@@ -104,7 +110,7 @@ function stub_out_video_calls() {
 
 function reset_jquery() {
     // Avoid leaks.
-    set_global("$", global.make_zjquery());
+    set_global("$", make_zjquery());
 }
 
 const new_user = {
@@ -151,7 +157,7 @@ run_test("validate_stream_message_address_info", () => {
 
     sub.subscribed = false;
     stream_data.add_sub(sub);
-    global.stub_templates((template_name) => {
+    stub_templates((template_name) => {
         assert.equal(template_name, "compose_not_subscribed");
         return "compose_not_subscribed_stub";
     });
@@ -197,7 +203,7 @@ run_test("validate_stream_message_address_info", () => {
 
 run_test("validate", () => {
     function initialize_pm_pill() {
-        set_global("$", global.make_zjquery());
+        set_global("$", make_zjquery());
 
         $("#compose-send-button").prop("disabled", false);
         $("#compose-send-button").trigger("focus");
@@ -215,7 +221,7 @@ run_test("validate", () => {
 
         $("#zephyr-mirror-error").is = noop;
 
-        global.stub_templates((fn) => {
+        stub_templates((fn) => {
             assert.equal(fn, "input_pill");
             return "<div>pill-html</div>";
         });
@@ -384,11 +390,11 @@ run_test("validate_stream_message", () => {
     assert(!$("#compose-all-everyone").visible());
     assert(!$("#compose-send-status").visible());
 
-    stream_data.get_subscriber_count = function (stream_id) {
+    peer_data.get_subscriber_count = function (stream_id) {
         assert.equal(stream_id, 101);
         return 16;
     };
-    global.stub_templates((template_name, data) => {
+    stub_templates((template_name, data) => {
         assert.equal(template_name, "compose_all_everyone");
         assert.equal(data.count, 16);
         return "compose_all_everyone_stub";
@@ -535,10 +541,10 @@ run_test("markdown_shortcuts", () => {
     let compose_value = $("#compose_textarea").val();
     let selected_word = "";
 
-    global.document.queryCommandEnabled = function () {
+    document.queryCommandEnabled = function () {
         return queryCommandEnabled;
     };
-    global.document.execCommand = function (cmd, bool, markdown) {
+    document.execCommand = function (cmd, bool, markdown) {
         const compose_textarea = $("#compose-textarea");
         const value = compose_textarea.val();
         $("#compose-textarea").val(
@@ -719,14 +725,14 @@ run_test("send_message", () => {
         return stub_state;
     }
 
-    global.patch_builtin("setTimeout", (func) => {
+    set_global("setTimeout", (func) => {
         func();
     });
-    global.server_events = {
+    set_global("server_events", {
         assert_get_events_running() {
             stub_state.get_events_running_called += 1;
         },
-    };
+    });
 
     // Tests start here.
     (function test_message_send_success_codepath() {
@@ -954,16 +960,21 @@ run_test("finish", () => {
 });
 
 run_test("warn_if_private_stream_is_linked", () => {
-    stream_data.add_sub({
+    const test_sub = {
         name: compose_state.stream_name(),
-        subscribers: new LazySet([1, 2]),
         stream_id: 99,
-    });
+    };
+
+    stream_data.add_sub(test_sub);
+    peer_data.set_subscribers(test_sub.stream_id, [1, 2]);
 
     let denmark = {
+        stream_id: 100,
         name: "Denmark",
-        subscribers: new LazySet([1, 2, 3]),
     };
+    stream_data.add_sub(denmark);
+
+    peer_data.set_subscribers(denmark.stream_id, [1, 2, 3]);
 
     function test_noop_case(invite_only) {
         compose_state.set_message_type("stream");
@@ -983,7 +994,7 @@ run_test("warn_if_private_stream_is_linked", () => {
     const checks = [
         (function () {
             let called;
-            global.stub_templates((template_name, context) => {
+            stub_templates((template_name, context) => {
                 called = true;
                 assert.equal(template_name, "compose_private_stream_alert");
                 assert.equal(context.stream_name, "Denmark");
@@ -1009,8 +1020,9 @@ run_test("warn_if_private_stream_is_linked", () => {
     denmark = {
         invite_only: true,
         name: "Denmark",
-        subscribers: new LazySet([1]),
+        stream_id: 22,
     };
+    stream_data.add_sub(denmark);
 
     compose.warn_if_private_stream_is_linked(denmark);
     assert.equal($("#compose_private_stream_alert").visible(), true);
@@ -1038,8 +1050,8 @@ run_test("initialize", () => {
     });
     $("#compose #attach_files").addClass("notdisplayed");
 
-    global.document = "document-stub";
-    global.csrf_token = "fake-csrf-token";
+    set_global("document", "document-stub");
+    set_global("csrf_token", "fake-csrf-token");
 
     page_params.max_file_upload_size_mib = 512;
 
@@ -1090,13 +1102,13 @@ run_test("initialize", () => {
     function set_up_compose_start_mock(expected_opts) {
         compose_actions_start_checked = false;
 
-        global.compose_actions = {
+        set_global("compose_actions", {
             start(msg_type, opts) {
                 assert.equal(msg_type, "stream");
                 assert.deepEqual(opts, expected_opts);
                 compose_actions_start_checked = true;
             },
-        };
+        });
     }
 
     (function test_page_params_narrow_path() {
@@ -1145,7 +1157,7 @@ run_test("update_fade", () => {
     let set_focused_recipient_checked = false;
     let update_all_called = false;
 
-    global.compose_fade = {
+    set_global("compose_fade", {
         set_focused_recipient(msg_type) {
             assert.equal(msg_type, "private");
             set_focused_recipient_checked = true;
@@ -1153,7 +1165,7 @@ run_test("update_fade", () => {
         update_all() {
             update_all_called = true;
         },
-    };
+    });
 
     compose_state.set_message_type(false);
     keyup_handler_func();
@@ -1204,7 +1216,7 @@ run_test("needs_subscribe_warning", () => {
     };
 
     stream_data.add_sub(sub);
-    stream_data.set_subscribers(sub, [bob.user_id, me.user_id]);
+    peer_data.set_subscribers(sub.stream_id, [bob.user_id, me.user_id]);
 
     blueslip.expect("error", "Unknown user_id in get_by_user_id: 999");
     // Test with an invalid user id.
@@ -1216,7 +1228,7 @@ run_test("needs_subscribe_warning", () => {
     // Test when user is subscribed to the stream.
     assert.equal(compose.needs_subscribe_warning(bob.user_id, sub.stream_id), false);
 
-    stream_data.remove_subscriber(sub.stream_id, bob.user_id);
+    peer_data.remove_subscriber(sub.stream_id, bob.user_id);
     // Test when the user is not subscribed.
     assert.equal(compose.needs_subscribe_warning(bob.user_id, sub.stream_id), true);
 });
@@ -1278,7 +1290,7 @@ run_test("warn_if_mentioning_unsubscribed_user", () => {
 
         (function () {
             let called;
-            global.stub_templates((template_name, context) => {
+            stub_templates((template_name, context) => {
                 called = true;
                 assert.equal(template_name, "compose_invite_users");
                 assert.equal(context.user_id, 34);
@@ -1339,7 +1351,7 @@ run_test("warn_if_mentioning_unsubscribed_user", () => {
 
     // Now try to mention the same person again. The template should
     // not render.
-    global.stub_templates(noop);
+    stub_templates(noop);
     compose.warn_if_mentioning_unsubscribed_user(mentioned);
     assert.equal($("#compose_invite_users").visible(), true);
     assert(looked_for_existing);
@@ -1843,15 +1855,13 @@ run_test("create_message_object", () => {
         "#compose-textarea": "burrito",
     };
 
-    global.$ = function (selector) {
-        return {
-            val() {
-                return page[selector];
-            },
-        };
-    };
+    set_global("$", (selector) => ({
+        val() {
+            return page[selector];
+        },
+    }));
 
-    global.compose_state.get_message_type = function () {
+    compose_state.get_message_type = function () {
         return "stream";
     };
 
@@ -1868,7 +1878,7 @@ run_test("create_message_object", () => {
     assert.equal(message.topic, "lunch");
     assert.equal(message.content, "burrito");
 
-    global.compose_state.get_message_type = function () {
+    compose_state.get_message_type = function () {
         return "private";
     };
     compose_state.private_message_recipient = function () {
@@ -1888,7 +1898,7 @@ run_test("create_message_object", () => {
 });
 
 run_test("nonexistent_stream_reply_error", () => {
-    set_global("$", global.make_zjquery());
+    set_global("$", make_zjquery());
 
     const actions = [];
     $("#nonexistent_stream_reply_error").show = () => {

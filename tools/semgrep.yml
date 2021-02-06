@@ -1,4 +1,4 @@
-# See https://github.com/returntocorp/semgrep/blob/experimental/docs/config/advanced.md
+# See https://semgrep.dev/docs/writing-rules/rule-syntax/ for documentation on YAML rule syntax
 
 rules:
   ####################### PYTHON RULES #######################
@@ -133,3 +133,9 @@ rules:
     pattern: eval
     severity: ERROR
     message: "Do not use eval under any circumstances; consider json.loads instead"
+
+  - id: typing-text
+    languages: [python]
+    pattern: typing.Text
+    severity: ERROR
+    message: "Use str instead of typing.Text"

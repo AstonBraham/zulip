@@ -4,7 +4,6 @@ exports.initialize = () => {
     helpers.set_tab("upgrade");
 
     const add_card_handler = StripeCheckout.configure({
-        // eslint-disable-line no-undef
         key: $("#autopay-form").data("key"),
         image: "/static/images/logo/zulip-icon-128x128.png",
         locale: "auto",
@@ -17,7 +16,9 @@ exports.initialize = () => {
 
     $("#add-card-button").on("click", (e) => {
         const license_management = $("input[type=radio][name=license_management]:checked").val();
-        if (helpers.is_valid_input($("#" + license_management + "_license_count")) === false) {
+        if (
+            helpers.is_valid_input($(`#${CSS.escape(license_management)}_license_count`)) === false
+        ) {
             return;
         }
         add_card_handler.open({

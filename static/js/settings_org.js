@@ -210,11 +210,11 @@ const simple_dropdown_properties = [
 ];
 
 function set_property_dropdown_value(property_name) {
-    $("#id_" + property_name).val(get_property_value(property_name));
+    $(`#id_${CSS.escape(property_name)}`).val(get_property_value(property_name));
 }
 
 function change_element_block_display_property(elem_id, show_element) {
-    const elem = $("#" + elem_id);
+    const elem = $(`#${CSS.escape(elem_id)}`);
     if (show_element) {
         elem.parent().show();
     } else {
@@ -433,7 +433,7 @@ exports.sync_realm_settings = function (property) {
     } else if (property === "invite_required" || property === "invite_by_admins_only") {
         property = "user_invite_restriction";
     }
-    const element = $("#id_realm_" + property);
+    const element = $(`#id_realm_${CSS.escape(property)}`);
     if (element.length) {
         discard_property_element_changes(element);
     }
@@ -582,7 +582,9 @@ exports.save_discard_widget_status_handler = (subsection) => {
     subsection.find(".subsection-failed-status p").hide();
     subsection.find(".save-button").show();
     const properties_elements = get_subsection_property_elements(subsection);
-    const show_change_process_button = properties_elements.some(check_property_changed);
+    const show_change_process_button = properties_elements.some((elem) =>
+        check_property_changed(elem),
+    );
 
     const save_btn_controls = subsection.find(".subsection-header .save-button-controls");
     const button_state = show_change_process_button ? "unsaved" : "discarded";
@@ -596,13 +598,10 @@ exports.signup_notifications_stream_widget = null;
 exports.init_dropdown_widgets = () => {
     const streams = stream_data.get_streams_for_settings_page();
     const notification_stream_options = {
-        data: streams.map((x) => {
-            const item = {
-                name: x.name,
-                value: x.stream_id.toString(),
-            };
-            return item;
-        }),
+        data: streams.map((x) => ({
+            name: x.name,
+            value: x.stream_id.toString(),
+        })),
         on_update: () => {
             exports.save_discard_widget_status_handler($("#org-notifications"));
         },
@@ -610,24 +609,16 @@ exports.init_dropdown_widgets = () => {
         render_text: (x) => `#${x}`,
         null_value: -1,
     };
-    exports.notifications_stream_widget = dropdown_list_widget(
-        Object.assign(
-            {
-                widget_name: "realm_notifications_stream_id",
-                value: page_params.realm_notifications_stream_id,
-            },
-            notification_stream_options,
-        ),
-    );
-    exports.signup_notifications_stream_widget = dropdown_list_widget(
-        Object.assign(
-            {
-                widget_name: "realm_signup_notifications_stream_id",
-                value: page_params.realm_signup_notifications_stream_id,
-            },
-            notification_stream_options,
-        ),
-    );
+    exports.notifications_stream_widget = dropdown_list_widget({
+        widget_name: "realm_notifications_stream_id",
+        value: page_params.realm_notifications_stream_id,
+        ...notification_stream_options,
+    });
+    exports.signup_notifications_stream_widget = dropdown_list_widget({
+        widget_name: "realm_signup_notifications_stream_id",
+        value: page_params.realm_signup_notifications_stream_id,
+        ...notification_stream_options,
+    });
     exports.default_code_language_widget = dropdown_list_widget({
         widget_name: "realm_default_code_block_language",
         data: Object.keys(pygments_data.langs).map((x) => ({
@@ -655,7 +646,9 @@ exports.build_page = function () {
     // Populate authentication methods table
     exports.populate_auth_methods(page_params.realm_authentication_methods);
 
-    simple_dropdown_properties.forEach(set_property_dropdown_value);
+    for (const property_name of simple_dropdown_properties) {
+        set_property_dropdown_value(property_name);
+    }
 
     set_realm_waiting_period_dropdown();
     set_video_chat_provider_dropdown();
@@ -695,7 +688,9 @@ exports.build_page = function () {
         (e) => {
             e.preventDefault();
             e.stopPropagation();
-            get_subsection_property_elements(e.target).forEach(discard_property_element_changes);
+            for (const elem of get_subsection_property_elements(e.target)) {
+                discard_property_element_changes(elem);
+            }
             const save_btn_controls = $(e.target).closest(".save-button-controls");
             exports.change_save_button_state(save_btn_controls, "discarded");
         },

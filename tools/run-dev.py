@@ -50,7 +50,7 @@ parser.add_argument('--interface',
                     help='Set the IP or hostname for the proxy to listen on')
 parser.add_argument('--no-clear-memcached',
                     action='store_false', dest='clear_memcached',
-                    help='Do not clear memcached')
+                    help='Do not clear memcached on startup')
 parser.add_argument('--streamlined',
                     action="store_true",
                     help='Avoid thumbor, etc.')
@@ -95,7 +95,7 @@ os.environ['DJANGO_SETTINGS_MODULE'] = settings_module
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from scripts.lib.zulip_tools import CYAN, ENDC, FAIL, WARNING
+from scripts.lib.zulip_tools import CYAN, ENDC, FAIL
 
 proxy_port = base_port
 django_port = base_port + 1
@@ -109,7 +109,6 @@ os.chdir(os.path.join(os.path.dirname(__file__), '..'))
 subprocess.check_call('./tools/clean-repo')
 
 if options.clear_memcached:
-    print("Clearing memcached ...")
     subprocess.check_call('./scripts/setup/flush-memcached')
 
 # Set up a new process group, so that we can later kill run{server,tornado}
@@ -133,7 +132,7 @@ with open(pid_file_path, 'w+') as f:
 
 def server_processes() -> List[List[str]]:
     main_cmds = [
-        ['./manage.py', 'runserver',
+        ['./manage.py', 'rundjangoserver',
          *manage_args, *runserver_args, f'127.0.0.1:{django_port}'],
         ['env', 'PYTHONUNBUFFERED=1', './manage.py', 'runtornado',
          *manage_args, f'127.0.0.1:{tornado_port}'],
@@ -341,9 +340,10 @@ def shutdown_handler(*args: Any, **kwargs: Any) -> None:
         io_loop.stop()
 
 def print_listeners() -> None:
-    print("\nZulip services will listen on ports:")
+    external_host = os.getenv('EXTERNAL_HOST', f'localhost:{proxy_port}')
+    print(f"\nStarting Zulip on:\n\n\t{CYAN}http://{external_host}/{ENDC}\n\nInternal ports:")
     ports = [
-        (proxy_port, CYAN + 'web proxy' + ENDC),
+        (proxy_port, 'Development server proxy (connect here)'),
         (django_port, 'Django'),
         (tornado_port, 'Tornado'),
     ]
@@ -357,9 +357,6 @@ def print_listeners() -> None:
     for port, label in ports:
         print(f'   {port}: {label}')
     print()
-
-    proxy_warning = f"Only the proxy port ({proxy_port}) is exposed."
-    print(WARNING + "Note to Vagrant users: " + ENDC + proxy_warning + '\n')
 
 children = []
 

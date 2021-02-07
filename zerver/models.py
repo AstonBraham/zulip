@@ -631,11 +631,6 @@ def realm_post_delete_handler(sender: Any, **kwargs: Any) -> None:
     # Django doesn't call it even when it's registered as a post_delete handler.
     flush_realm(sender, from_deletion=True, **kwargs)
 
-def realm_post_delete_handler(sender: Any, **kwargs: Any) -> None:
-    # This would be better as a functools.partial, but for some reason
-    # Django doesn't call it even when it's registered as a post_delete handler.
-    flush_realm(sender, from_deletion=True, **kwargs)
-
 post_save.connect(flush_realm, sender=Realm)
 post_delete.connect(realm_post_delete_handler, sender=Realm)
 
